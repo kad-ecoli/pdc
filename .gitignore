@@ -1,0 +1,6 @@
+# compiled python code
+*.pyc
+
+# vim temporary backup
+.*.sw*
+

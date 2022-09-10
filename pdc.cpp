@@ -44,17 +44,19 @@ int main(int argc,char **argv)
         return 1;
     }
     
-    ModelUnit pdb_entry=read_pdb_structure(infile.c_str(),atomic_detail);
-
+    string header;
+    ModelUnit pdb_entry=read_pdb_structure(infile.c_str(),header,atomic_detail);
 
     map<string, map<string,int> >ordMap;
     initialize_atom_order_map(ordMap);
     standardize_pdb_order(pdb_entry, ordMap);
-    write_pdb_structure(outfile.c_str(),pdb_entry);
+    write_pdb_structure(outfile.c_str(),pdb_entry,header);
 
     /* clean up */
     string ().swap(infile);
     string ().swap(outfile);
+    string ().swap(header);
+    deepClean(pdb_entry);
     map<string, map<string,int> >().swap(ordMap);
     return 0;
 }

@@ -48,12 +48,16 @@ struct ModelUnit  // struct for each model in mult-model PDB
 /* parse one line in PDB file, append the data to pep. 
  * used by read_pdb_structure
  * allowX: 0 - ATOM, 1 - ATOM and MSE, converting MSE to MET
- * return 0 if line not parsed, 1 if line is parsed
+ * return 0 if line not parsed, 1 if line is parsed, 
+ * 2 if line should be parsed by other subrountine
  */
 int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     ResidueUnit &residue, AtomUnit &atom, map<char,string> &chainIDmap,
     const int atomic_detail=2,const int allowX=1)
 {
+    if (StartsWith(line,"HEADER") || StartsWith(line,"TITLE ") ||
+        StartsWith(line,"COMPND") || StartsWith(line,"SOURCE") ||
+        StartsWith(line,"DBREF")) return 2;
     string record_name=line.substr(0,6);
     char altLoc=line[16];
 
@@ -121,7 +125,7 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
  *         2 - all, converting MSE to MET, 3 - all, no conversion
  * filename: full filename path, stdin if filename=="-"
  */
-ModelUnit read_pdb_structure(const char *filename,
+ModelUnit read_pdb_structure(const char *filename,string &header,
     const int atomic_detail=2,const int allowX=1)
 {
     ModelUnit pep;
@@ -183,8 +187,9 @@ ModelUnit read_pdb_structure(const char *filename,
                 getline(fp_gz2,line);
                 if (line.substr(0,3)=="END") break;
                 if (line.length()<53) continue;
-                parse_pdb_line(line,pep,chain,residue,atom,PDBmap[PDBfile],
-                    atomic_detail,allowX);
+                if (parse_pdb_line(line,pep,chain,residue,atom,PDBmap[PDBfile],
+                    atomic_detail,allowX)==2)
+                    header+=line+'\n';
             }
             fp_gz2.close();
         }
@@ -226,8 +231,9 @@ ModelUnit read_pdb_structure(const char *filename,
         if (line.substr(0,3)=="END") break;
         if (line.length()<53) continue;
         
-        parse_pdb_line(line,pep,chain,residue,atom,chainIDmap,
-            atomic_detail,allowX);
+        if (parse_pdb_line(line,pep,chain,residue,atom,chainIDmap,
+            atomic_detail,allowX)==2)
+            header+=line+'\n';
     }
     if (!use_stdin)
     {
@@ -288,9 +294,9 @@ void write_pdb_structure(const char *filename,ChainUnit &chain)
     }
 }
 
-string write_pdb_structure(ModelUnit &pep)
+string write_pdb_structure(ModelUnit &pep,string &header)
 {
-    string txt=""; 
+    string txt=header; 
     int c,r,s;
     stringstream buf;
     string line="";
@@ -334,14 +340,14 @@ string write_pdb_structure(ModelUnit &pep)
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */
-void write_pdb_structure(const char *filename,ModelUnit &pep)
+void write_pdb_structure(const char *filename,ModelUnit &pep,string &header)
 {
     if (strcmp(filename,"-")==0)
-        cout<<write_pdb_structure(pep)<<flush;
+        cout<<write_pdb_structure(pep,header)<<flush;
     else
     {
         ofstream fp(filename);
-        fp<<write_pdb_structure(pep)<<flush;
+        fp<<write_pdb_structure(pep,header)<<flush;
         fp.close();
     }
 }
@@ -706,6 +712,34 @@ void standardize_pdb_order(ModelUnit &pep, map<string, map<string,int> >&ordMap)
     int c;
     for (c=0;c<pep.chains.size();c++)
         standardize_pdb_order(pep.chains[c],ordMap);
+}
+
+void deepClean(AtomUnit &atom)
+{
+    string ().swap(atom.name);
+    vector<float>().swap(atom.xyz);
+}
+
+void deepClean(ResidueUnit &residue)
+{
+    int a;
+    for (a=0;a<residue.atoms.size();a++) deepClean(residue.atoms[a]);
+    residue.atoms.clear();
+    string ().swap(residue.resn);
+}
+
+void deepClean(ChainUnit &chain)
+{
+    int r;
+    for (r=0;r<chain.residues.size();r++) deepClean(chain.residues[r]);
+    chain.residues.clear();
+    string ().swap(chain.chainID_full);
+}
+
+void deepClean(ModelUnit &pep)
+{
+    int c;
+    for (c=0;c<pep.chains.size();c++) deepClean(pep.chains[c]);
 }
 
 #endif

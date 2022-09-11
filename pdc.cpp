@@ -50,7 +50,8 @@ int main(int argc,char **argv)
     map<string, map<string,int> >ordMap;
     initialize_atom_order_map(ordMap);
     standardize_pdb_order(pdb_entry, ordMap);
-    write_pdb_structure(outfile.c_str(),pdb_entry,header);
+    //write_pdb_structure(outfile.c_str(),pdb_entry,header);
+    write_pdc_structure(outfile.c_str(),pdb_entry,header);
 
     /* clean up */
     string ().swap(infile);

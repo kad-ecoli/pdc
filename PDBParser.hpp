@@ -610,7 +610,7 @@ void initialize_atom_order_map(map<string, map<string,int> > & ordMap)
     ordMap["ASP"]=ord; ordMap["ASP"][" CG "]=5; ordMap["ASP"][" OD1"]=6;
                        ordMap["ASP"][" OD2"]=7;
     ordMap["GLU"]=ord; ordMap["GLU"][" CG "]=5; ordMap["GLU"][" CD "]=6;
-                       ordMap["GLU"][" OD1"]=7; ordMap["GLU"][" OD2"]=8;
+                       ordMap["GLU"][" OE1"]=7; ordMap["GLU"][" OE2"]=8;
     ordMap["PHE"]=ord; ordMap["PHE"][" CG "]=5; ordMap["PHE"][" CD1"]=6;
                        ordMap["PHE"][" CD2"]=7; ordMap["PHE"][" CE1"]=8;
                        ordMap["PHE"][" CE2"]=9; ordMap["PHE"][" CZ "]=10;
@@ -712,6 +712,145 @@ void standardize_pdb_order(ModelUnit &pep, map<string, map<string,int> >&ordMap)
     int c;
     for (c=0;c<pep.chains.size();c++)
         standardize_pdb_order(pep.chains[c],ordMap);
+}
+
+char check_moltype(ChainUnit &chain)
+{
+    int pro=0;
+    int dna=0;
+    int rna=0;
+    int r;
+    for (r=0;r<chain.residues.size();r++)
+    {
+        if (chain.residues[r].resn[0]!=' ')      pro++;
+        else if (chain.residues[r].resn[1]=='D') dna++;
+        else if (chain.residues[r].resn[1]==' ') rna++;
+    }
+    if      (dna>pro && dna>rna) return 'D';
+    else if (rna>pro && rna>dna) return 'R';
+    return 'P';
+}
+
+int check_bfactor_mode(ChainUnit &chain)
+{
+    int bfactor_mode=-1;
+    float bfactor=0;
+    int r,a;
+    for (r=0;r<chain.residues.size();r++)
+    {
+        for (a=0;a<chain.residues[r].atoms.size();a++)
+        {
+            if (bfactor_mode==-1)
+            {
+                bfactor=chain.residues[r].atoms[a].bfactor;
+                bfactor_mode=0;
+            }
+            if (bfactor_mode==0 && bfactor!=
+                chain.residues[r].atoms[a].bfactor)
+            {
+                if (a) return 2;
+                else bfactor_mode=1;
+            }
+            if (a==0) bfactor=chain.residues[r].atoms[a].bfactor;
+            if (bfactor!=chain.residues[r].atoms[a].bfactor)
+                return 2;
+        }
+    }
+    return bfactor_mode;
+}
+
+void write_pdc_structure(const char *filename,ModelUnit &pep,string &header)
+{
+    ofstream fp(filename,ofstream::binary);
+    fp<<header<<flush;
+    int a,c,r;
+    char moltype;
+    int bfactor_mode;
+    pdb2fasta(pep);
+    int resi_prev=0;
+    char icode_prev=' ';
+    int L,La;
+    float x,y,z,bfactor;
+    for (c=0;c<pep.chains.size();c++)
+    {
+        moltype=check_moltype(pep.chains[c]);
+        bfactor_mode=check_bfactor_mode(pep.chains[c]);
+        L=pep.chains[c].residues.size();
+        La=0;
+        fp  <<"@a\n>"<<pep.chains[c].chainID_full<<'\t'
+            <<moltype<<'\t'<<bfactor_mode<<'\t'<<La<<'\t'<<L<<'\n'
+            <<pep.chains[c].sequence<<'\n';
+        for (r=0;r<L;r++)
+        {
+            if (r==0)
+            {
+                resi_prev =pep.chains[c].residues[0].resi;
+                icode_prev=pep.chains[c].residues[0].icode;
+                fp<<resi_prev;
+                if (icode_prev!=' ') fp<<icode_prev;
+            }
+            else
+            {
+                if (icode_prev!=' ')
+                {
+                    fp<<','<<pep.chains[c].residues[r].resi;
+                    if (pep.chains[c].residues[r].icode!=' ')
+                        fp<<pep.chains[c].residues[r].icode;
+                }
+                else
+                {
+                    if (pep.chains[c].residues[r].icode!=' ')
+                        fp<<'-'<<resi_prev
+                            <<','<<pep.chains[c].residues[r].resi
+                            <<pep.chains[c].residues[r].icode;
+                    else if (pep.chains[c].residues[r].resi!=resi_prev+1)
+                        fp<<'-'<<resi_prev;
+                    else if (r==L-1)
+                        fp<<'-'<<pep.chains[c].residues[r].resi;
+                }
+                resi_prev =pep.chains[c].residues[r].resi;
+                icode_prev=pep.chains[c].residues[r].icode;
+            }
+            La+=pep.chains[c].residues[r].atoms.size();
+        }
+        fp<<endl;
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+            {
+                x=pep.chains[c].residues[r].atoms[a].xyz[0];
+                y=pep.chains[c].residues[r].atoms[a].xyz[1];
+                z=pep.chains[c].residues[r].atoms[a].xyz[2];
+                fp.write((char *)&x,sizeof(float));
+                fp.write((char *)&y,sizeof(float));
+                fp.write((char *)&z,sizeof(float));
+            }
+        }
+        bfactor=pep.chains[c].residues[0].atoms[0].bfactor;
+        if (bfactor_mode==0) fp.write((char *)&bfactor,sizeof(bfactor));
+        else if (bfactor_mode==1)
+        {
+            for (r=0;r<pep.chains[c].residues.size();r++)
+            {
+                bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
+                fp.write((char *)&bfactor,sizeof(float));
+            }
+        }
+        else if (bfactor_mode==2)
+        {
+            for (r=0;r<pep.chains[c].residues.size();r++)
+            {
+                for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+                {
+                    bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
+                    fp.write((char *)&bfactor,sizeof(float));
+                }
+            }
+        }
+
+    }
+    fp<<flush;
+    fp.close();
 }
 
 void deepClean(AtomUnit &atom)

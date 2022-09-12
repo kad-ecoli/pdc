@@ -21,8 +21,8 @@ using namespace std;
 struct AtomUnit    // struct for each atom entry
 {
     string name;       // atom name
-    vector<float> xyz; // coordinate
-    float bfactor;     // temperature factor
+    vector<int32_t> xyz; // coordinate
+    int32_t bfactor;     // temperature factor
 };
 
 struct ResidueUnit // struct for each residue
@@ -46,6 +46,30 @@ struct ModelUnit  // struct for each model in mult-model PDB
     vector<ChainUnit> chains; // list of chains
 };
 
+int32_t XYZtoint32(string line)
+{
+    float  xf=atof(line.c_str());
+    int32_t x=atoi(line.substr(0,4).c_str())*1000;
+    if (line[5]!='0') if (xf>0) x+=(int)(line[5]-'0')*100;
+                      else      x-=(int)(line[5]-'0')*100;
+    if (line[6]!='0') if (xf>0) x+=(int)(line[6]-'0')*10;
+                      else      x-=(int)(line[6]-'0')*10;
+    if (line[7]!='0') if (xf>0) x+=(int)(line[7]-'0');
+                      else      x-=(int)(line[7]-'0');
+    return x;
+}
+
+int32_t Btoint32(string line)
+{
+    float  xf=atof(line.c_str());
+    int32_t x=atoi(line.substr(0,3).c_str())*100;
+    if (line[4]!='0') if (xf>0) x+=(int)(line[4]-'0')*10;
+                      else      x-=(int)(line[4]-'0')*10;
+    if (line[5]!='0') if (xf>0) x+=(int)(line[5]-'0');
+                      else      x-=(int)(line[5]-'0');
+    return x;
+}
+
 /* parse one line in PDB file, append the data to pep. 
  * used by read_pdb_structure
  * allowX: 0 - ATOM, 1 - ATOM and MSE, converting MSE to MET
@@ -53,7 +77,7 @@ struct ModelUnit  // struct for each model in mult-model PDB
  * 2 if line should be parsed by other subrountine
  */
 int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
-    ResidueUnit &residue, AtomUnit &atom, map<char,string> &chainIDmap,
+    ResidueUnit &residue, AtomUnit &atom,
     const int atomic_detail=2,const int allowX=1)
 {
     if (StartsWith(line,"HEADER") || StartsWith(line,"TITLE ") ||
@@ -90,22 +114,22 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     else if (atom.name==" O2P") atom.name=" OP2";
     else if (atom.name[3]=='*') atom.name=atom.name.substr(0,3)+"'";
     chain.chainID=line[21];
-    if (chainIDmap.find(chain.chainID)==chainIDmap.end())
-        chain.chainID_full=chain.chainID;
-    else
-        chain.chainID_full=chainIDmap[chain.chainID];
-    if (chain.chainID_full==" ") chain.chainID_full="_";
+    if (chain.chainID==' ') chain.chainID='_';
     residue.resi=atoi(line.substr(22,4).c_str());
     residue.icode=line[26];
-    atom.xyz[0]=atof(line.substr(30,8).c_str());
-    atom.xyz[1]=atof(line.substr(38,8).c_str());
-    atom.xyz[2]=atof(line.substr(46,8).c_str());
+    //atom.xyz[0]=1000*atof(line.substr(30,8).c_str());
+    //atom.xyz[1]=1000*atof(line.substr(38,8).c_str());
+    //atom.xyz[2]=1000*atof(line.substr(46,8).c_str());
+    atom.xyz[0]=XYZtoint32(line.substr(30,8));
+    atom.xyz[1]=XYZtoint32(line.substr(38,8));
+    atom.xyz[2]=XYZtoint32(line.substr(46,8));
     atom.bfactor=0;
-    if (line.size()>=66) atom.bfactor=atof(line.substr(60,6).c_str());
+    //if (line.size()>=66) atom.bfactor=100*atof(line.substr(60,6).c_str());
+    if (line.size()>=66) atom.bfactor=Btoint32(line.substr(60,6).c_str());
 
     int chain_index=-1;
     for (int c=0;c<pep.chains.size();c++)
-        if (pep.chains[c].chainID_full==chain.chainID_full) chain_index=c;
+        if (pep.chains[c].chainID==chain.chainID) chain_index=c;
     if (chain_index==-1)
     {
         pep.chains.push_back(chain);
@@ -142,67 +166,8 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
 
     ChainUnit chain;
 
-    map<char,string> chainIDmap;
     string filename_str=(string) filename;
     
-    if (filename_str.length()>=18 &&
-        filename_str.substr(filename_str.length()-18,18)=="-pdb-bundle.tar.gz")
-    {
-        // best effort/minimal tarball
-        redi::ipstream fp_gz("tar -xOzf "+filename_str+
-            " --wildcards *-chain-id-mapping.txt");
-        map <string,map<char,string> > PDBmap;
-        vector<string> PDBvec;
-
-        string PDBfile=""; // PDB format file in tarball
-        char chainID;
-        string chainID_full;
-
-        while(fp_gz.good())
-        {
-            getline(fp_gz,line);
-            if (line.length()==0 || (PDBfile.length()==0 && line[0]==' '))
-                continue;
-            if (line[0]!=' ') // new PDBfile
-            {
-                PDBfile=line.substr(0,line.length()-1);
-                PDBmap[PDBfile]=chainIDmap;
-                PDBvec.push_back(PDBfile);
-            }
-            else // new chain
-            {
-                istringstream ss(line);
-                ss>>chainID>>chainID_full;
-                PDBmap[PDBfile][chainID]=chainID_full;
-            }
-        }
-        fp_gz.close();
-
-        int i,c;
-        for (i=0;i<PDBvec.size();i++)
-        {
-            PDBfile=PDBvec[i];
-            redi::ipstream fp_gz2("tar -xOzf "+filename_str+' '+PDBfile);
-            while(fp_gz2.good())
-            {
-                getline(fp_gz2,line);
-                if (line.substr(0,3)=="END") break;
-                if (line.length()<53) continue;
-                if (parse_pdb_line(line,pep,chain,residue,atom,PDBmap[PDBfile],
-                    atomic_detail,allowX)==2)
-                    header+=rstrip(line)+'\n';
-            }
-            fp_gz2.close();
-        }
-
-        chain.residues.clear();
-        residue.atoms.clear();
-        chainIDmap.clear();
-        PDBmap.clear();
-        return pep;
-    }
-    
-
     int use_stdin=(filename_str=="-");
     int use_pstream=0; // input is compressed
 
@@ -232,8 +197,7 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
         if (line.substr(0,3)=="END") break;
         if (line.length()<53) continue;
         
-        if (parse_pdb_line(line,pep,chain,residue,atom,chainIDmap,
-            atomic_detail,allowX)==2)
+        if (parse_pdb_line(line,pep,chain,residue,atom,atomic_detail,allowX)==2)
             header+=rstrip(line)+'\n';
     }
     if (!use_stdin)
@@ -246,8 +210,23 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
     
     chain.residues.clear();
     residue.atoms.clear();
-    chainIDmap.clear();
     return pep;
+}
+
+string int32toXYZ(int32_t x)
+{
+    stringstream buf;
+    buf<<setw(4)<<x/1000<<'.';
+    string txt=buf.str();
+    buf.str(string());
+    x=abs(x);
+    int d3=x%10;x=(x-d3)/10;
+    int d2=x%10;x=(x-d2)/10;
+    int d1=x%10;
+    txt+=(char)(d1+'0');
+    txt+=(char)(d2+'0');
+    txt+=(char)(d3+'0');
+    return txt;
 }
 
 /* i - first atom index */
@@ -255,26 +234,36 @@ string write_pdb_structure(ChainUnit &chain,int &i)
 {
     stringstream buf;
     int r,a;
+    char chainID=' ';
+    int32_t x,y,z;
 
     for (r=0;r<chain.residues.size();r++)
+    {
         for (a=0;a<chain.residues[r].atoms.size();a++)
+        {
+            chainID=chain.chainID;
+            if (chainID=='.' || chainID=='_') chainID=' ';
+            x=chain.residues[r].atoms[a].xyz[0];
+            y=chain.residues[r].atoms[a].xyz[1];
+            z=chain.residues[r].atoms[a].xyz[2];
             buf<<"ATOM  "
                <<resetiosflags(ios::left)<<setw(5)<<i++<<' '
                <<chain.residues[r].atoms[a].name<<' '
                <<chain.residues[r].resn<<' '<<chain.chainID<<setw(4)
-               <<chain.residues[r].resi<<chain.residues[r].icode
-               <<"   " <<setiosflags(ios::fixed)<<setprecision(3)
-               <<setw(8)<<chain.residues[r].atoms[a].xyz[0]
-               <<setw(8)<<chain.residues[r].atoms[a].xyz[1]
-               <<setw(8)<<chain.residues[r].atoms[a].xyz[2]
+               <<chain.residues[r].resi<<chain.residues[r].icode<<"   "
+               //<<int32toXYZ(x)<<int32toXYZ(y)<<int32toXYZ(z)
+               <<setiosflags(ios::fixed)<<setprecision(3)
+               <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z
                <<"  1.00"<<setw(6)<<setiosflags(ios::fixed)<<setprecision(2)
-               <<chain.residues[r].atoms[a].bfactor
+               <<0.01*chain.residues[r].atoms[a].bfactor
                <<"           "
                <<Trim(chain.residues[r].atoms[a].name)[0]<<"  \n";
+        }
+    }
     r--;
     buf<<"TER   "
        <<resetiosflags(ios::left)<<setw(5)<<i++<<"      "
-       <<chain.residues[r].resn<<' '<<chain.chainID<<setw(4)
+       <<chain.residues[r].resn<<' '<<chainID<<setw(4)
        <<chain.residues[r].resi<<chain.residues[r].icode
        <<"                                                     "
        <<endl;
@@ -314,23 +303,32 @@ string write_pdb_structure(ModelUnit &pep,string &header)
     vector<string> ().swap(line_vec);
     stringstream buf;
     line="";
+    char chainID;
     for (c=0;c<pep.chains.size();c++)
     {
         s=0;
+        chainID=pep.chains[c].chainID;
+        if (chainID=='_' || chainID=='.') chainID=' ';
         for (r=0;r<pep.chains[c].residues.size();r++)
         {
             if (line.size()==0)
             {
                 s++;
-                buf<<"SEQRES "<<setw(3)<<s<<' '<<pep.chains[c].chainID<<' '
+                buf<<"SEQRES "<<setw(3)<<s<<' '<<chainID<<' '
                     <<setw(4)<<pep.chains[c].residues.size()<<" "<<flush;
                 line=buf.str();
                 buf.str(string());
             }
             line+=" "+pep.chains[c].residues[r].resn;
-            if (line.size()>=70 || r==pep.chains[c].residues.size()-1)
+            if (line.size()>=70)
             {
                 txt+=line+"          \n";
+                line.clear();
+            }
+            else if (r+1==pep.chains[c].residues.size())
+            {
+                while (line.size()<80) line+=' ';
+                txt+=line+'\n';
                 line.clear();
             }
         }
@@ -533,7 +531,7 @@ string pdb2fasta(ModelUnit& pep,const string PDBid="",const int ShowSeqLen=0)
     for (int c=0;c<pep.chains.size();c++)
     {
         sequence=pdb2fasta(pep.chains[c]);
-        buf<<'>'<<PDBid<<':'<<pep.chains[c].chainID_full;
+        buf<<'>'<<PDBid<<':'<<pep.chains[c].chainID;
         if (ShowSeqLen) buf<<'\t'<<sequence.length();
         buf<<'\n'<<sequence<<'\n';
     }
@@ -682,7 +680,7 @@ void standardize_pdb_order(ChainUnit &chain, map<string, map<string,int> >&ordMa
               chain.residues[r].atoms.size()==1+ordMap[resn].size()))
         {
             cerr<<"ERROR! "<<resn
-                <<' '<<chain.chainID_full
+                <<' '<<chain.chainID
                 <<' '<<chain.residues[r].resi
                 <<" has "<<chain.residues[r].atoms.size()
                 <<" atoms != "<<ordMap[resn].size()<<endl;
@@ -748,7 +746,7 @@ char check_moltype(ChainUnit &chain)
 int check_bfactor_mode(ChainUnit &chain)
 {
     int bfactor_mode=-1;
-    float bfactor=0;
+    int32_t bfactor=0;
     int r,a;
     for (r=0;r<chain.residues.size();r++)
     {
@@ -783,22 +781,19 @@ string write_pdc_structure(ModelUnit &pep,string &header)
     pdb2fasta(pep);
     int resi_prev=0;
     char icode_prev=' ';
-    int L,La;
-    float x,y,z,bfactor;
-    float prev_x=pep.chains[c].residues[0].atoms[0].xyz[0];
-    float prev_y=pep.chains[c].residues[0].atoms[0].xyz[1];
-    float prev_z=pep.chains[c].residues[0].atoms[0].xyz[2];
-    float prev_b=pep.chains[c].residues[0].atoms[0].bfactor;
-    float dxf,dyf,dzf,dbf;
+    int L;
+    int32_t x,y,z,bfactor;
+    int32_t prev_x=pep.chains[c].residues[0].atoms[0].xyz[0];
+    int32_t prev_y=pep.chains[c].residues[0].atoms[0].xyz[1];
+    int32_t prev_z=pep.chains[c].residues[0].atoms[0].xyz[2];
+    int32_t dxf,dyf,dzf,dbf;
     int16_t dx16,dy16,dz16,db16;
     for (c=0;c<pep.chains.size();c++)
     {
-        vector<float> overflow_vec;
         moltype=check_moltype(pep.chains[c]);
         bfactor_mode=check_bfactor_mode(pep.chains[c]);
         L=pep.chains[c].residues.size();
-        La=0;
-        buf <<"@a\n>"<<pep.chains[c].chainID_full<<'\t'
+        buf <<"@a\n>"<<pep.chains[c].chainID<<'\t'
             <<moltype<<'\t'<<bfactor_mode<<'\t'<<L<<'\n'
             <<pep.chains[c].sequence<<'\n';
         for (r=0;r<L;r++)
@@ -832,13 +827,11 @@ string write_pdc_structure(ModelUnit &pep,string &header)
                 resi_prev =pep.chains[c].residues[r].resi;
                 icode_prev=pep.chains[c].residues[r].icode;
             }
-            La+=pep.chains[c].residues[r].atoms.size();
         }
         buf<<'\n';
-        buf<<La<<'\n';
-        buf.write((char *)&prev_x,sizeof(float));
-        buf.write((char *)&prev_y,sizeof(float));
-        buf.write((char *)&prev_z,sizeof(float));
+        buf.write((char *)&prev_x,sizeof(int32_t));
+        buf.write((char *)&prev_y,sizeof(int32_t));
+        buf.write((char *)&prev_z,sizeof(int32_t));
         for (r=0;r<pep.chains[c].residues.size();r++)
         {
             for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
@@ -846,27 +839,9 @@ string write_pdc_structure(ModelUnit &pep,string &header)
                 x=pep.chains[c].residues[r].atoms[a].xyz[0];
                 y=pep.chains[c].residues[r].atoms[a].xyz[1];
                 z=pep.chains[c].residues[r].atoms[a].xyz[2];
-                dxf=int32_t(1000*x)-int32_t(1000*prev_x);
-                dyf=int32_t(1000*y)-int32_t(1000*prev_y);
-                dzf=int32_t(1000*z)-int32_t(1000*prev_z);
-                dx16=(int16_t)(dxf);
-                dy16=(int16_t)(dyf);
-                dz16=(int16_t)(dzf);
-                if (dxf<=INT16_MIN || dxf>=INT16_MAX)
-                {
-                    dx16=INT16_MAX;
-                    overflow_vec.push_back(x);
-                }
-                if (dyf<=INT16_MIN || dyf>=INT16_MAX)
-                {
-                    dy16=INT16_MAX;
-                    overflow_vec.push_back(y);
-                }
-                if (dzf<=INT16_MIN || dzf>=INT16_MAX)
-                {
-                    dz16=INT16_MAX;
-                    overflow_vec.push_back(z);
-                }
+                dx16=x-prev_x;
+                dy16=y-prev_y;
+                dz16=z-prev_z;
                 buf.write((char *)&dx16,sizeof(int16_t));
                 buf.write((char *)&dy16,sizeof(int16_t));
                 buf.write((char *)&dz16,sizeof(int16_t));
@@ -878,21 +853,17 @@ string write_pdc_structure(ModelUnit &pep,string &header)
             prev_y=pep.chains[c].residues[r].atoms[2].xyz[1];
             prev_z=pep.chains[c].residues[r].atoms[2].xyz[2];
         }
-        buf.write((char *)&prev_b,sizeof(float));
-        if (bfactor_mode==1)
+        if (bfactor_mode==0)
+        {
+            bfactor=pep.chains[c].residues[0].atoms[0].bfactor;
+            buf.write((char *)&bfactor,sizeof(int32_t));
+        }
+        else if (bfactor_mode==1)
         {
             for (r=0;r<pep.chains[c].residues.size();r++)
             {
                 bfactor=pep.chains[c].residues[r].atoms[0].bfactor;
-                dbf=int32_t(100*bfactor)-int32_t(100*prev_b);
-                db16=(int16_t)(dbf);
-                if (dbf<=INT16_MIN || dbf>=INT16_MAX)
-                {
-                    db16=INT16_MAX;
-                    overflow_vec.push_back(bfactor);
-                }
-                buf.write((char *)&db16,sizeof(int16_t));
-                prev_b=bfactor;
+                buf.write((char *)&bfactor,sizeof(int32_t));
             }
         }
         else if (bfactor_mode==2)
@@ -902,22 +873,10 @@ string write_pdc_structure(ModelUnit &pep,string &header)
                 for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
                 {
                     bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
-                    dbf=int32_t(100*bfactor)-int32_t(100*prev_b);
-                    db16=(int16_t)(dbf);
-                    if (dbf<=INT16_MIN || dbf>=INT16_MAX)
-                    {
-                        db16=INT16_MAX;
-                        overflow_vec.push_back(bfactor);
-                    }
-                    buf.write((char *)&db16,sizeof(int16_t));
-                    prev_b=bfactor;
+                    buf.write((char *)&bfactor,sizeof(int32_t));
                 }
             }
         }
-        //size_t overNum=overflow_vec.size();
-        //buf.write((char *)&overNum,sizeof(size_t));
-        //for (a=0;a<overNum;a++) buf.write((char *)&overflow_vec[a],sizeof(float));
-        overflow_vec.clear();
     }
     buf<<flush;
     txt+=buf.str()+"\nEND\n";
@@ -983,13 +942,13 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
     }
 
     string sequence;
-    int L,La;
+    int L;
     vector<string> line_vec;
     int bfactor_mode;
     char moltype;
     int a,r,c;
-    float prev_x,prev_y,prev_z,prev_b;
-    float x,y,z,bfactor;
+    int32_t prev_x,prev_y,prev_z;
+    int32_t x,y,z,bfactor;
     int16_t dx16,dy16,dz16,db16;
     int atomNum;
     while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
@@ -1009,8 +968,7 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
         else if (use_pstream) getline(fp_gz,line);
         else                  getline(fp,line);
         Split(line,line_vec,'\t');
-        chain.chainID_full=line_vec[0].substr(1);
-        chain.chainID=chain.chainID_full.back();
+        chain.chainID=line_vec[0][1];
         moltype=line_vec[1][0];
         bfactor_mode=atoi(line_vec[2].c_str());
         L=atoi(line_vec[3].c_str());
@@ -1053,31 +1011,24 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
             }
         }
         line_vec.clear();
-        if (use_stdin)        getline(cin,line);
-        else if (use_pstream) getline(fp_gz,line);
-        else                  getline(fp,line);
-        La=atoi(line.c_str());
         if (use_stdin)
         {
-            cin.read((char *)&prev_x,sizeof(float));
-            cin.read((char *)&prev_y,sizeof(float));
-            cin.read((char *)&prev_z,sizeof(float));
+            cin.read((char *)&prev_x,sizeof(int32_t));
+            cin.read((char *)&prev_y,sizeof(int32_t));
+            cin.read((char *)&prev_z,sizeof(int32_t));
         }
         else if (use_pstream)
         {
-            fp_gz.read((char *)&prev_x,sizeof(float));
-            fp_gz.read((char *)&prev_y,sizeof(float));
-            fp_gz.read((char *)&prev_z,sizeof(float));
+            fp_gz.read((char *)&prev_x,sizeof(int32_t));
+            fp_gz.read((char *)&prev_y,sizeof(int32_t));
+            fp_gz.read((char *)&prev_z,sizeof(int32_t));
         }
         else
         {
-            fp.read((char *)&prev_x,sizeof(float));
-            fp.read((char *)&prev_y,sizeof(float));
-            fp.read((char *)&prev_z,sizeof(float));
+            fp.read((char *)&prev_x,sizeof(int32_t));
+            fp.read((char *)&prev_y,sizeof(int32_t));
+            fp.read((char *)&prev_z,sizeof(int32_t));
         }
-        prev_x*=1000;
-        prev_y*=1000;
-        prev_z*=1000;
         for (r=0;r<L;r++)
         {
             residue.resi=resi_vec[r];
@@ -1119,26 +1070,24 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
             chain.residues.push_back(residue);
             residue.atoms.clear();
         }
-        if (use_stdin)        cin.read((char *)&prev_b,sizeof(float));
-        else if (use_pstream) fp_gz.read((char *)&prev_b,sizeof(float));
-        else                  fp.read((char *)&prev_b,sizeof(float));
-        prev_b*=100;
         if (bfactor_mode==0)
         {
+            if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
+            else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
+            else                  fp.read((char *)&bfactor,sizeof(int32_t));
             for (r=0;r<chain.residues.size();r++)
                 for (a=0;a<chain.residues[r].atoms.size();a++)
-                    chain.residues[r].atoms[a].bfactor=prev_b;
+                    chain.residues[r].atoms[a].bfactor=bfactor;
         }
         else if (bfactor_mode==1)
         {
             for (r=0;r<chain.residues.size();r++)
             {
-                if (use_stdin)        cin.read((char *)&db16,sizeof(int16_t));
-                else if (use_pstream) fp_gz.read((char *)&db16,sizeof(int16_t));
-                else                  fp.read((char *)&db16,sizeof(int16_t));
-                prev_b+=db16;
+                if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
+                else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
+                else                  fp.read((char *)&bfactor,sizeof(int32_t));
                 for (a=0;a<chain.residues[r].atoms.size();a++)
-                    chain.residues[r].atoms[a].bfactor=prev_b;
+                    chain.residues[r].atoms[a].bfactor=bfactor;
             }
         }
         else if (bfactor_mode==2)
@@ -1147,22 +1096,11 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
             {
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                 {
-                    if (use_stdin)        cin.read((char *)&db16,sizeof(int16_t));
-                    else if (use_pstream) fp_gz.read((char *)&db16,sizeof(int16_t));
-                    else                  fp.read((char *)&db16,sizeof(int16_t));
-                    prev_b+=db16;
-                    chain.residues[r].atoms[a].bfactor=prev_b;
+                    if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
+                    else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
+                    else                  fp.read((char *)&bfactor,sizeof(int32_t));
+                    chain.residues[r].atoms[a].bfactor=bfactor;
                 }
-            }
-        }
-        for (r=0;r<L;r++)
-        {
-            for (a=0;a<chain.residues[r].atoms.size();a++)
-            {
-                chain.residues[r].atoms[a].bfactor*=0.01;
-                chain.residues[r].atoms[a].xyz[0]*=0.001;
-                chain.residues[r].atoms[a].xyz[1]*=0.001;
-                chain.residues[r].atoms[a].xyz[2]*=0.001;
             }
         }
         pep.chains.push_back(chain);
@@ -1183,7 +1121,7 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
 void deepClean(AtomUnit &atom)
 {
     string ().swap(atom.name);
-    vector<float>().swap(atom.xyz);
+    vector<int32_t>().swap(atom.xyz);
 }
 
 void deepClean(ResidueUnit &residue)
@@ -1199,7 +1137,6 @@ void deepClean(ChainUnit &chain)
     int r;
     for (r=0;r<chain.residues.size();r++) deepClean(chain.residues[r]);
     chain.residues.clear();
-    string ().swap(chain.chainID_full);
 }
 
 void deepClean(ModelUnit &pep)

@@ -22,7 +22,7 @@ struct AtomUnit    // struct for each atom entry
 {
     string name;       // atom name
     vector<int32_t> xyz; // coordinate
-    int32_t bfactor;     // temperature factor
+    int16_t bfactor;     // temperature factor
 };
 
 struct ResidueUnit // struct for each residue
@@ -59,10 +59,10 @@ int32_t XYZtoint32(string line)
     return x;
 }
 
-int32_t Btoint32(string line)
+int32_t Btoint16(string line)
 {
     float  xf=atof(line.c_str());
-    int32_t x=atoi(line.substr(0,3).c_str())*100;
+    int16_t x=atoi(line.substr(0,3).c_str())*100;
     if (line[4]!='0') if (xf>0) x+=(int)(line[4]-'0')*10;
                       else      x-=(int)(line[4]-'0')*10;
     if (line[5]!='0') if (xf>0) x+=(int)(line[5]-'0');
@@ -125,7 +125,7 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     atom.xyz[2]=XYZtoint32(line.substr(46,8));
     atom.bfactor=0;
     //if (line.size()>=66) atom.bfactor=100*atof(line.substr(60,6).c_str());
-    if (line.size()>=66) atom.bfactor=Btoint32(line.substr(60,6).c_str());
+    if (line.size()>=66) atom.bfactor=Btoint16(line.substr(60,6).c_str());
 
     int chain_index=-1;
     for (int c=0;c<pep.chains.size();c++)
@@ -856,14 +856,14 @@ string write_pdc_structure(ModelUnit &pep,string &header)
         if (bfactor_mode==0)
         {
             bfactor=pep.chains[c].residues[0].atoms[0].bfactor;
-            buf.write((char *)&bfactor,sizeof(int32_t));
+            buf.write((char *)&bfactor,sizeof(int16_t));
         }
         else if (bfactor_mode==1)
         {
             for (r=0;r<pep.chains[c].residues.size();r++)
             {
                 bfactor=pep.chains[c].residues[r].atoms[0].bfactor;
-                buf.write((char *)&bfactor,sizeof(int32_t));
+                buf.write((char *)&bfactor,sizeof(int16_t));
             }
         }
         else if (bfactor_mode==2)
@@ -873,7 +873,7 @@ string write_pdc_structure(ModelUnit &pep,string &header)
                 for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
                 {
                     bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
-                    buf.write((char *)&bfactor,sizeof(int32_t));
+                    buf.write((char *)&bfactor,sizeof(int16_t));
                 }
             }
         }
@@ -1072,9 +1072,9 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
         }
         if (bfactor_mode==0)
         {
-            if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
-            else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
-            else                  fp.read((char *)&bfactor,sizeof(int32_t));
+            if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
+            else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
+            else                  fp.read((char *)&bfactor,sizeof(int16_t));
             for (r=0;r<chain.residues.size();r++)
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                     chain.residues[r].atoms[a].bfactor=bfactor;
@@ -1083,9 +1083,9 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
         {
             for (r=0;r<chain.residues.size();r++)
             {
-                if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
-                else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
-                else                  fp.read((char *)&bfactor,sizeof(int32_t));
+                if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
+                else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
+                else                  fp.read((char *)&bfactor,sizeof(int16_t));
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                     chain.residues[r].atoms[a].bfactor=bfactor;
             }
@@ -1096,9 +1096,9 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
             {
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                 {
-                    if (use_stdin)        cin.read((char *)&bfactor,sizeof(int32_t));
-                    else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int32_t));
-                    else                  fp.read((char *)&bfactor,sizeof(int32_t));
+                    if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
+                    else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
+                    else                  fp.read((char *)&bfactor,sizeof(int16_t));
                     chain.residues[r].atoms[a].bfactor=bfactor;
                 }
             }

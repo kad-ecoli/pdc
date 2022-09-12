@@ -52,6 +52,15 @@ string Trim(const string &inputString)
     return result;
 }
 
+string rstrip(const string &inputString)
+{
+    string result=inputString;
+    int idxEnd = inputString.find_last_not_of(" \n\r\t");
+    if (idxEnd >= 0)
+        result = inputString.substr(0, idxEnd + 1);
+    return result;
+}
+
 inline bool StartsWith(const string &longString, const string &shortString)
 {
     return (longString.substr(0,shortString.size())==shortString);

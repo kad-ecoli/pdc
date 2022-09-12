@@ -9,9 +9,8 @@ PDC decrease the size of protein coordinate files in PDB or mmCIF format through
 2. Use [int](https://en.cppreference.com/w/cpp/types/integer) and ``char`` instead of ``string`` to store coordinates and B-factors.
    Specifically, since xyz and bfactor can be expressed as %8.3f and %6.2f, they are in the range of -999.999 to 9999.999 and -99.99 to 999.99, respectively. This means that they can be expressed as integers in the range of 0 to 10999998 and 0 to 109998, respectively, both of which can be stored by unint32.
 3. Delta encoding: store the difference in coordinate/bfactor from the previous value rather than the actual value, which is usually within 32.767 and can be stored by int16. If the value is greater than or equal to INT16_MAX, or less than or equal to INT16_MIN, the actual value can be stored separately.
-* For N atom: store the difference to the previous C atom
-* For other atoms: store the difference to the previous atom
-4. [Variable-length quantity (VLQ)](https://rosettacode.org/wiki/Variable-length_quantity#C++): A VLQ is essentially a base-128 representation of an unsigned integer with the addition of the eighth bit to mark continuation of bytes.
+  * For N atom: store the difference to the previous C atom
+  * For other atoms: store the difference to the previous atom
 4. (Optional) Under lossy mode, the coordinates of some atoms will be discarded, including:
   * backbone atoms: O (recovered from N, CA, C and OXT during decompression)
   * HIS sidechain atoms: CG, ND1, NE2 (recovered from CB, CE1, CD2 during decompression)

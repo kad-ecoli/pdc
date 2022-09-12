@@ -13,7 +13,7 @@ PDC decrease the size of protein coordinate files in PDB or mmCIF format through
 * For other atoms: store the difference to the previous atom
 4. [Variable-length quantity (VLQ)](https://rosettacode.org/wiki/Variable-length_quantity#C++): A VLQ is essentially a base-128 representation of an unsigned integer with the addition of the eighth bit to mark continuation of bytes.
 4. (Optional) Under lossy mode, the coordinates of some atoms will be discarded, including:
-  * backbone atoms: CB, O, OXT (recovered from N, CA, C during decompression)
+  * backbone atoms: O (recovered from N, CA, C and OXT during decompression)
   * HIS sidechain atoms: CG, ND1, NE2 (recovered from CB, CE1, CD2 during decompression)
   * PHE sidechain atoms: CG, CD1, CD2, CZ (recovered from CB, CE1, CE2 during decompression)
   * TYR sidechain atoms: CG, CD1, CD2, CZ, OH (recovered from CB, CE1, CE2 during decompression)

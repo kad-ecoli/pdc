@@ -213,22 +213,6 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
     return pep;
 }
 
-string int32toXYZ(int32_t x)
-{
-    stringstream buf;
-    buf<<setw(4)<<x/1000<<'.';
-    string txt=buf.str();
-    buf.str(string());
-    x=abs(x);
-    int d3=x%10;x=(x-d3)/10;
-    int d2=x%10;x=(x-d2)/10;
-    int d1=x%10;
-    txt+=(char)(d1+'0');
-    txt+=(char)(d2+'0');
-    txt+=(char)(d3+'0');
-    return txt;
-}
-
 /* i - first atom index */
 string write_pdb_structure(ChainUnit &chain,int &i)
 {
@@ -251,7 +235,6 @@ string write_pdb_structure(ChainUnit &chain,int &i)
                <<chain.residues[r].atoms[a].name<<' '
                <<chain.residues[r].resn<<' '<<chain.chainID<<setw(4)
                <<chain.residues[r].resi<<chain.residues[r].icode<<"   "
-               //<<int32toXYZ(x)<<int32toXYZ(y)<<int32toXYZ(z)
                <<setiosflags(ios::fixed)<<setprecision(3)
                <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z
                <<"  1.00"<<setw(6)<<setiosflags(ios::fixed)<<setprecision(2)
@@ -362,19 +345,6 @@ void write_pdb_structure(const char *filename,ModelUnit &pep,string &header)
         fp<<write_pdb_structure(pep,header)<<flush;
         fp.close();
     }
-}
-
-/* renumber residue index from "startindex" */
-void reindex_pdb(const int startindex,ChainUnit& chain)
-{
-    for (int r=0;r<chain.residues.size();r++)
-        chain.residues[r].resi=r+startindex;
-}
-
-void reindex_pdb(const int startindex,ModelUnit& pep)
-{
-    for (int c=0;c<pep.chains.size();c++) 
-        reindex_pdb(startindex,pep.chains[c]);
 }
 
 /* convert pdb structure to fasta sequence 
@@ -1116,6 +1086,216 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
     chain.residues.clear();
     vector<string>().swap(line_vec);
     return pep;
+}
+
+string write_cif_structure(ModelUnit &pep,string &header)
+{
+    string txt="data_AF\n#\n_entry.id AF\n#\n";
+    pdb2fasta(pep);
+    stringstream buf;
+    int a,r,c,s;
+    vector<string> line_vec;
+    Split(header,line_vec,'\n');
+    for (s=0;s<line_vec.size();s++)
+    {
+        if (StartsWith(line_vec[s],"DBREF "))
+        {
+            txt=Trim(line_vec[s].substr(33,8));
+            r=atoi(line_vec[s].substr(55,5).c_str());
+            r/=200;
+            r++;
+            buf<<"data_AF-"<<txt<<"-F"<<r
+                <<"\n#\n_entry.id AF-"<<txt<<"-F"<<r<<"\n#\n";
+            txt=buf.str();
+            buf.str(string());
+            break;
+        }
+    }
+    vector<string> ().swap(line_vec);
+
+
+    txt+=""
+"loop_\n"
+"_atom_type.symbol\n"
+"C \n"
+"N \n"
+"O \n";
+    bool hasS=false;
+    bool hasP=false;
+    string sequence="";
+    for (c=0;c<pep.chains.size();c++)
+    {
+        sequence+=pep.chains[c].sequence;
+        char moltype=check_moltype(pep.chains[c]);
+        if (moltype=='D'||moltype=='R') hasP=true;
+        else if (hasS==false &&
+            pep.chains[c].sequence.find('M')!=string::npos ||
+            pep.chains[c].sequence.find('C')!=string::npos)
+            hasS=true;
+    }
+    if (hasP) txt+="P \n";
+    if (hasS) txt+="S \n";
+    txt+="#\n";
+    txt+="loop_\n"
+"_entity_poly_seq.entity_id\n"
+"_entity_poly_seq.hetero\n"
+"_entity_poly_seq.mon_id\n"
+"_entity_poly_seq.num\n";
+
+    double global_metric=0;
+    int L=sequence.size();
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            buf<<"1 n "<<pep.chains[c].residues[r].resn<<' '
+                <<left<<setw(5)<<pep.chains[c].residues[r].resi<<endl;
+            txt+=buf.str();
+            buf.str(string());
+            global_metric+=pep.chains[c].residues[r].atoms[1].bfactor;
+        }
+    }
+    global_metric/=(100*L);
+    txt+="#\n"
+"loop_\n"
+"_ma_data.content_type\n"
+"_ma_data.id\n"
+"_ma_data.name\n"
+"\"model coordinates\" 1 Model             \n"
+"\"input structure\"   2 \"Input structure\" \n"
+"#\n"
+"loop_\n"
+"_ma_protocol_step.method_type\n"
+"_ma_protocol_step.ordinal_id\n"
+"_ma_protocol_step.protocol_id\n"
+"_ma_protocol_step.step_id\n"
+"\"coevolution MSA\" 1 1 1 \n"
+"\"template search\" 2 1 2 \n"
+"modeling          3 1 3 \n"
+"#\n"
+"_ma_software_group.group_id    1\n"
+"_ma_software_group.ordinal_id  1\n"
+"_ma_software_group.software_id 1\n"
+"#\n"
+"_ma_template_trans_matrix.id               1\n"
+"_ma_template_trans_matrix.rot_matrix[1][1] 1.0\n"
+"_ma_template_trans_matrix.rot_matrix[1][2] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[1][3] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[2][1] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[2][2] 1.0\n"
+"_ma_template_trans_matrix.rot_matrix[2][3] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[3][1] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[3][2] 0.0\n"
+"_ma_template_trans_matrix.rot_matrix[3][3] 1.0\n"
+"_ma_template_trans_matrix.tr_vector[1]     0.0\n"
+"_ma_template_trans_matrix.tr_vector[2]     0.0\n"
+"_ma_template_trans_matrix.tr_vector[3]     0.0\n"
+"#\n"
+"loop_\n"
+"_pdbx_poly_seq_scheme.asym_id\n"
+"_pdbx_poly_seq_scheme.auth_seq_num\n"
+"_pdbx_poly_seq_scheme.entity_id\n"
+"_pdbx_poly_seq_scheme.hetero\n"
+"_pdbx_poly_seq_scheme.mon_id\n"
+"_pdbx_poly_seq_scheme.pdb_ins_code\n"
+"_pdbx_poly_seq_scheme.pdb_mon_id\n"
+"_pdbx_poly_seq_scheme.pdb_seq_num\n"
+"_pdbx_poly_seq_scheme.pdb_strand_id\n"
+"_pdbx_poly_seq_scheme.seq_id\n";
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            buf<<pep.chains[c].chainID<<' '
+                <<left<<setw(4)<<pep.chains[c].residues[r].resi<<" 1 n "
+                <<pep.chains[c].residues[r].resn<<" . "
+                <<pep.chains[c].residues[r].resn<<' '
+                <<left<<setw(4)<<pep.chains[c].residues[r].resi
+                <<" "<<pep.chains[c].chainID<<" "
+                <<left<<setw(5)<<pep.chains[c].residues[r].resi<<endl;
+            txt+=buf.str();
+            buf.str(string());
+        }
+    }
+    txt+="#\n"
+"loop_\n"
+"_atom_site.group_PDB\n"
+"_atom_site.id\n"
+"_atom_site.type_symbol\n"
+"_atom_site.label_atom_id\n"
+"_atom_site.label_alt_id\n"
+"_atom_site.label_comp_id\n"
+"_atom_site.label_asym_id\n"
+"_atom_site.label_entity_id\n"
+"_atom_site.label_seq_id\n"
+"_atom_site.pdbx_PDB_ins_code\n"
+"_atom_site.Cartn_x\n"
+"_atom_site.Cartn_y\n"
+"_atom_site.Cartn_z\n"
+"_atom_site.occupancy\n"
+"_atom_site.B_iso_or_equiv\n"
+"_atom_site.pdbx_formal_charge\n"
+"_atom_site.auth_seq_id\n"
+"_atom_site.auth_comp_id\n"
+"_atom_site.auth_asym_id\n"
+"_atom_site.auth_atom_id\n"
+"_atom_site.pdbx_PDB_model_num\n";
+    size_t i=0;
+    char icode='?';
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            icode=pep.chains[c].residues[r].icode;
+            if (icode==' ') icode='?';
+            for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+            {
+                i++;
+
+                buf<<"ATOM "
+                    <<left<<setw(5)<<i<<" "
+                    <<Trim(pep.chains[c].residues[r].atoms[a].name)[0]
+                    <<' '<<left<<setw(3)
+                    <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" . "
+                    <<pep.chains[c].residues[r].resn
+                    <<' '<<pep.chains[c].chainID<<" 1 "
+                    <<left<<setw(4)<<pep.chains[c].residues[r].resi
+                    <<' '<<icode<<' '
+                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<0.001*pep.chains[c].residues[r].atoms[a].xyz[0]<<' '
+                    <<left<<setw(7)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<0.001*pep.chains[c].residues[r].atoms[a].xyz[1]<<' '
+                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<0.001*pep.chains[c].residues[r].atoms[a].xyz[2]<<" 1.0 "
+                    <<left<<setw(5)<<setiosflags(ios::fixed)<<setprecision(2)
+                    <<0.01*pep.chains[c].residues[r].atoms[a].bfactor
+                    <<' '<<icode<<' '
+                    <<left<<setw(4)<<pep.chains[c].residues[r].resi
+                    <<' '<<pep.chains[c].residues[r].resn
+                    <<' '<<pep.chains[c].chainID
+                    <<' '<<left<<setw(3)
+                    <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" 1 "
+                    <<endl;
+                txt+=buf.str();
+                buf.str(string());
+            }
+        }
+    }
+    txt+="#\n";
+    return txt;
+}
+
+/* filename - full output filename, write to stdout if filename=="-" */
+void write_cif_structure(const char *filename,ModelUnit &pep,string &header)
+{
+    if (strcmp(filename,"-")==0)
+        cout<<write_cif_structure(pep,header)<<flush;
+    else
+    {
+        ofstream fp(filename);
+        fp<<write_cif_structure(pep,header)<<flush;
+        fp.close();
+    }
 }
 
 void deepClean(AtomUnit &atom)

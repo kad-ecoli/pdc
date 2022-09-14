@@ -63,6 +63,14 @@ string rstrip(const string &inputString,const string &char_list=" \n\r\t")
 
 inline bool StartsWith(const string &longString, const string &shortString)
 {
-    return (longString.substr(0,shortString.size())==shortString);
+    return (longString.size()>=shortString.size() &&
+            longString.substr(0,shortString.size())==shortString);
+}
+
+inline bool EndsWith(const string &longString, const string &shortString)
+{
+    return (longString.size()>=shortString.size() &&
+            longString.substr(longString.size()-shortString.size(),
+                shortString.size())==shortString);
 }
 #endif

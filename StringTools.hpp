@@ -42,20 +42,20 @@ void Split(const string &line, vector<string> &line_vec,
 }
 
 /* strip white space at the begining or end of string */
-string Trim(const string &inputString)
+string Trim(const string &inputString,const string &char_list=" \n\r\t")
 {
     string result = inputString;
-    int idxBegin = inputString.find_first_not_of(" \n\r\t");
-    int idxEnd = inputString.find_last_not_of(" \n\r\t");
+    int idxBegin = inputString.find_first_not_of(char_list);
+    int idxEnd = inputString.find_last_not_of(char_list);
     if (idxBegin >= 0 && idxEnd >= 0)
         result = inputString.substr(idxBegin, idxEnd + 1 - idxBegin);
     return result;
 }
 
-string rstrip(const string &inputString)
+string rstrip(const string &inputString,const string &char_list=" \n\r\t")
 {
     string result=inputString;
-    int idxEnd = inputString.find_last_not_of(" \n\r\t");
+    int idxEnd = inputString.find_last_not_of(char_list);
     if (idxEnd >= 0)
         result = inputString.substr(0, idxEnd + 1);
     return result;

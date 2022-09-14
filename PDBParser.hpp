@@ -80,9 +80,8 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     ResidueUnit &residue, AtomUnit &atom,
     const int atomic_detail=2,const int allowX=1)
 {
-    if (StartsWith(line,"HEADER") || StartsWith(line,"TITLE ") ||
-        StartsWith(line,"COMPND") || StartsWith(line,"SOURCE") ||
-        StartsWith(line,"DBREF")) return 2;
+    if (StartsWith(line,"TITLE ") || StartsWith(line,"COMPND") || 
+        StartsWith(line,"SOURCE") || StartsWith(line,"DBREF")) return 2;
     string record_name=line.substr(0,6);
     char altLoc=line[16];
 
@@ -210,6 +209,121 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
     
     chain.residues.clear();
     residue.atoms.clear();
+    return pep;
+}
+
+ModelUnit read_cif_structure(const char *filename,string &header,
+    const int atomic_detail=2,const int allowX=1)
+{
+    ModelUnit pep;
+    vector<string> _atom_site;
+    stringstream buf;
+
+    string line="";
+    char altLoc='.';
+    char icode='?';
+    char chainID='.';
+
+    AtomUnit atom;
+    atom.xyz.assign(3,0);
+    atom.bfactor=0;
+    ResidueUnit residue;
+    ChainUnit chain;
+
+    string filename_str=(string) filename;
+    
+    int use_stdin=(filename_str=="-");
+    int use_pstream=0; // input is compressed
+    ifstream fp;
+    redi::ipstream fp_gz; // if file is compressed
+    if (filename_str.length()>=3 && 
+        filename_str.substr(filename_str.length()-3,3)==".gz")
+    {
+        // gzip pdb
+        fp_gz.open("zcat "+filename_str);
+        use_pstream=1;
+    }
+    else
+    {
+        fp.open(filename,ios::in); //ifstream fp(filename,ios::in);
+    }
+
+    string model_group_name="ALPHAFOLD MONOMER V2.0 PREDICTION";
+    string db_accession="";
+    string db_code="UNP";
+    string db_name="";
+    string ncbi_taxonomy_id="";
+    string organism_scientific="";
+    string seq_db_align_begin="";
+    string seq_db_align_end="";
+    string pdbx_description="";
+    string asym_id="";
+
+    while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
+    {
+        if (use_stdin)        getline(cin,line);
+        else if (use_pstream) getline(fp_gz,line);
+        else                  getline(fp,line);
+
+        if (StartsWith(line,"_ma_model_list.model_group_name"))
+            model_group_name=Trim(line.substr(32)," \"");
+        else if (StartsWith(line,"_ma_target_ref_db_details.db_accession"))
+            db_accession=Trim(line.substr(39));
+        else if (StartsWith(line,"_ma_target_ref_db_details.db_code"))
+            db_code=Trim(line.substr(34));
+        else if (StartsWith(line,"_ma_target_ref_db_details.db_name"))
+            db_name=Trim(line.substr(34));
+        else if (StartsWith(line,"_ma_target_ref_db_details.ncbi_taxonomy_id"))
+            ncbi_taxonomy_id=Trim(line.substr(43));
+        else if (StartsWith(line,"_ma_target_ref_db_details.organism_scientific"))
+            organism_scientific=Trim(line.substr(46)," \"");
+        else if (StartsWith(line,"_ma_target_ref_db_details.seq_db_align_begin"))
+            seq_db_align_begin=Trim(line.substr(45));
+        else if (StartsWith(line,"_ma_target_ref_db_details.seq_db_align_end"))
+            seq_db_align_end=Trim(line.substr(43));
+        else if (StartsWith(line,"_entity.pdbx_description"))
+            pdbx_description=Trim(line.substr(25)," \"");
+        else if (StartsWith(line,"_ma_target_entity_instance.asym_id"))
+            asym_id=Trim(line.substr(35));
+    }
+    if (model_group_name.size())
+        header+="TITLE     "+model_group_name+" FOR "+pdbx_description+
+            " ("+db_accession+")\n";
+    header+="COMPND    MOL_ID: 1;\n";
+    if (pdbx_description.size()) header+="COMPND   2 MOLECULE: "+
+        pdbx_description+";\n";
+    if (asym_id.size())
+        header+="COMPND   3 CHAIN: "+asym_id+"\n";
+    header+="SOURCE    MOL_ID: 1;\n";
+    if (organism_scientific.size())
+        header+="SOURCE   2 ORGANISM_SCIENTIFIC: "+organism_scientific+";\n";
+    if (ncbi_taxonomy_id.size())
+        header+="SOURCE   3 ORGANISM_TAXID: "+ncbi_taxonomy_id+";\n";
+    if (seq_db_align_begin.size() && seq_db_align_end.size() && 
+        db_accession.size() && db_code.size())
+    {
+        buf<<"DBREF  XXXX "<<asym_id[0]<<"    1  "<<setw(4)
+            <<1+atoi(seq_db_align_end.c_str())-atoi(seq_db_align_begin.c_str())
+            <<"  "<<setw(6)<<left<<db_name
+            <<" "<<setw(8)<<left<<db_accession
+            <<" "<<setw(12)<<left<<db_code
+            <<" "<<setw(5)<<right<<seq_db_align_begin
+            <<"  "<<setw(5)<<seq_db_align_end<<endl;
+        header+=buf.str();
+        buf.str(string());
+    }
+
+    if (!use_stdin)
+    {
+        if (use_pstream==0) fp.close();
+        else fp_gz.close();
+    }
+    
+    /* clean up */
+    atom.xyz.clear();
+    residue.atoms.clear();
+    chain.residues.clear();
+    vector<string> ().swap(_atom_site);
     return pep;
 }
 
@@ -744,6 +858,7 @@ int check_bfactor_mode(ChainUnit &chain)
 string write_pdc_structure(ModelUnit &pep,string &header)
 {
     string txt=header;
+    if (pep.chains.size()==0) return txt;
     stringstream buf;
     int a,c,r;
     char moltype;
@@ -1096,6 +1211,17 @@ string write_cif_structure(ModelUnit &pep,string &header)
     int a,r,c,s;
     vector<string> line_vec;
     Split(header,line_vec,'\n');
+    string model_group_name="";
+    string db_accession="";
+    string db_code="";
+    string db_name="";
+    string ncbi_taxonomy_id="";
+    string organism_scientific="";
+    string seq_db_align_begin="";
+    string seq_db_align_end="";
+    string pdbx_description="";
+    string asym_id="";
+    string::size_type n;
     for (s=0;s<line_vec.size();s++)
     {
         if (StartsWith(line_vec[s],"DBREF "))
@@ -1108,11 +1234,48 @@ string write_cif_structure(ModelUnit &pep,string &header)
                 <<"\n#\n_entry.id AF-"<<txt<<"-F"<<r<<"\n#\n";
             txt=buf.str();
             buf.str(string());
-            break;
+            db_accession=Trim(line_vec[s].substr(33,8));
+            db_code=Trim(line_vec[s].substr(42,12));
+            db_name=Trim(line_vec[s].substr(26,6));
+            seq_db_align_begin=Trim(line_vec[s].substr(55,5));
+            seq_db_align_end  =Trim(line_vec[s].substr(62,5));
+        }
+        if (StartsWith(line_vec[s],"TITLE "))
+        {
+            n=line_vec[s].find(" FOR ");
+            if (n!=string::npos)
+                model_group_name=line_vec[s].substr(10,n-10);
+        }
+        if (StartsWith(line_vec[s],"COMPND"))
+        {
+            if (asym_id.size()==0)
+            {
+                n=line_vec[s].find(" CHAIN: ");
+                if (n!=string::npos) asym_id=line_vec[s].substr(n+8);
+            }
+            if (pdbx_description.size()==0)
+            {
+                n=line_vec[s].find(" MOLECULE: ");
+                if (n!=string::npos) pdbx_description=
+                    rstrip(Trim(line_vec[s].substr(n+11)),";");
+            }
+        }
+        if (StartsWith(line_vec[s],"SOURCE"))
+        {
+            if (organism_scientific.size()==0)
+            {
+                n=line_vec[s].find(" ORGANISM_SCIENTIFIC: ");
+                if (n!=string::npos) organism_scientific=
+                    rstrip(Trim(line_vec[s].substr(n+22)),";");
+            }
+            if (ncbi_taxonomy_id.size()==0)
+            {
+                n=line_vec[s].find(" ORGANISM_TAXID: ");
+                if (n!=string::npos) ncbi_taxonomy_id=
+                    rstrip(Trim(line_vec[s].substr(n+17)),";");
+            }
         }
     }
-    vector<string> ().swap(line_vec);
-
 
     txt+=""
 "loop_\n"
@@ -1163,20 +1326,44 @@ string write_cif_structure(ModelUnit &pep,string &header)
 "_ma_data.name\n"
 "\"model coordinates\" 1 Model             \n"
 "\"input structure\"   2 \"Input structure\" \n"
-"#\n"
-"loop_\n"
-"_ma_protocol_step.method_type\n"
-"_ma_protocol_step.ordinal_id\n"
-"_ma_protocol_step.protocol_id\n"
-"_ma_protocol_step.step_id\n"
-"\"coevolution MSA\" 1 1 1 \n"
-"\"template search\" 2 1 2 \n"
-"modeling          3 1 3 \n"
-"#\n"
+"#\n";
+    if (model_group_name.size()) txt+=""
+"_ma_model_list.data_id          1\n"
+"_ma_model_list.model_group_id   1\n"
+"_ma_model_list.model_group_name \""+model_group_name+"\"\n"
+"_ma_model_list.model_id         1\n"
+"_ma_model_list.model_name       \"Top ranked model\"\n"
+"_ma_model_list.model_type       \"Ab initio model\"\n"
+"_ma_model_list.ordinal_id       1\n"
+"#\n";
+
+    txt+=""
 "_ma_software_group.group_id    1\n"
 "_ma_software_group.ordinal_id  1\n"
 "_ma_software_group.software_id 1\n"
 "#\n"
+"_ma_target_entity.data_id   1\n"
+"_ma_target_entity.entity_id 1\n"
+"_ma_target_entity.origin    \"reference database\"\n"
+"#\n";
+    if (asym_id.size()) txt+=""
+"_ma_target_entity_instance.asym_id   "+asym_id+"\n"
+"_ma_target_entity_instance.details   .\n"
+"_ma_target_entity_instance.entity_id 1\n"
+"#\n";
+    bool pdbx_sifts=(db_name.size() && db_accession.size() && seq_db_align_begin.size() && seq_db_align_end.size());
+    if (pdbx_sifts && db_code.size() && ncbi_taxonomy_id.size() &&
+        organism_scientific.size()) txt+=""
+"_ma_target_ref_db_details.db_accession                 "+db_accession+"\n"
+"_ma_target_ref_db_details.db_code                      "+db_code+"\n"
+"_ma_target_ref_db_details.db_name                      "+db_name+"\n"
+"_ma_target_ref_db_details.ncbi_taxonomy_id             "+ncbi_taxonomy_id+"\n"
+"_ma_target_ref_db_details.organism_scientific          \""+organism_scientific+"\"\n"
+"_ma_target_ref_db_details.seq_db_align_begin           "+seq_db_align_begin+"\n"
+"_ma_target_ref_db_details.seq_db_align_end             "+seq_db_align_end+"\n"
+"_ma_target_ref_db_details.target_entity_id             1\n"
+"#\n";
+    txt+=""
 "_ma_template_trans_matrix.id               1\n"
 "_ma_template_trans_matrix.rot_matrix[1][1] 1.0\n"
 "_ma_template_trans_matrix.rot_matrix[1][2] 0.0\n"
@@ -1240,6 +1427,12 @@ string write_cif_structure(ModelUnit &pep,string &header)
 "_atom_site.auth_asym_id\n"
 "_atom_site.auth_atom_id\n"
 "_atom_site.pdbx_PDB_model_num\n";
+    if (pdbx_sifts) txt+=""
+"_atom_site.pdbx_sifts_xref_db_acc\n"
+"_atom_site.pdbx_sifts_xref_db_name\n"
+"_atom_site.pdbx_sifts_xref_db_num\n"
+"_atom_site.pdbx_sifts_xref_db_res\n";
+    int pdbx_sifts_xref_db_num=atoi(seq_db_align_begin.c_str());
     size_t i=0;
     char icode='?';
     for (c=0;c<pep.chains.size();c++)
@@ -1251,7 +1444,6 @@ string write_cif_structure(ModelUnit &pep,string &header)
             for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
             {
                 i++;
-
                 buf<<"ATOM "
                     <<left<<setw(5)<<i<<" "
                     <<Trim(pep.chains[c].residues[r].atoms[a].name)[0]
@@ -1263,7 +1455,7 @@ string write_cif_structure(ModelUnit &pep,string &header)
                     <<' '<<icode<<' '
                     <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[0]<<' '
-                    <<left<<setw(7)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[1]<<' '
                     <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[2]<<" 1.0 "
@@ -1274,15 +1466,20 @@ string write_cif_structure(ModelUnit &pep,string &header)
                     <<' '<<pep.chains[c].residues[r].resn
                     <<' '<<pep.chains[c].chainID
                     <<' '<<left<<setw(3)
-                    <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" 1 "
-                    <<endl;
+                    <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" 1 ";
+                if (pdbx_sifts) buf<<db_accession<<' '<<db_name<<' '
+                    <<setw(4)<<pdbx_sifts_xref_db_num<<' '
+                    <<aa3to1(pep.chains[c].residues[r].resn)<<' ';
+                buf<<endl;
                 txt+=buf.str();
                 buf.str(string());
             }
+            pdbx_sifts_xref_db_num++;
         }
     }
     txt+="#\n";
     return txt;
+    vector<string> ().swap(line_vec);
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */

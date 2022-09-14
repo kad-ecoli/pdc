@@ -48,6 +48,7 @@ struct ModelUnit  // struct for each model in mult-model PDB
 
 int32_t XYZtoint32(string line)
 {
+    while (line.size()<8) line=' '+line;
     float  xf=atof(line.c_str());
     int32_t x=atoi(line.substr(0,4).c_str())*1000;
     if (line[5]!='0') if (xf>0) x+=(int)(line[5]-'0')*100;
@@ -61,6 +62,7 @@ int32_t XYZtoint32(string line)
 
 int32_t Btoint16(string line)
 {
+    while (line.size()<6) line=' '+line;
     float  xf=atof(line.c_str());
     int16_t x=atoi(line.substr(0,3).c_str())*100;
     if (line[4]!='0') if (xf>0) x+=(int)(line[4]-'0')*10;
@@ -216,20 +218,18 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     const int atomic_detail=2,const int allowX=1)
 {
     ModelUnit pep;
-    vector<string> _atom_site;
-    stringstream buf;
-
-    string line="";
-    char altLoc='.';
-    char icode='?';
-    char chainID='.';
-
+    ChainUnit chain;
+    ResidueUnit residue;
     AtomUnit atom;
     atom.xyz.assign(3,0);
     atom.bfactor=0;
-    ResidueUnit residue;
-    ChainUnit chain;
+    int s,a,r,c;
 
+    map<string,int> _atom_site;
+    int _atom_site_count=0;
+    stringstream buf;
+
+    string line="";
     string filename_str=(string) filename;
     
     int use_stdin=(filename_str=="-");
@@ -259,6 +259,16 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     string pdbx_description="";
     string asym_id="";
 
+    string model_num="";
+    string resi="";
+    string icode="";
+    string chainID="";
+    string seq_id="";
+    string resn="";
+    string group_PDB="";
+    string atom_id="";
+    vector<string> pdb_line_vec;
+    
     while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
     {
         if (use_stdin)        getline(cin,line);
@@ -285,7 +295,141 @@ ModelUnit read_cif_structure(const char *filename,string &header,
             pdbx_description=Trim(line.substr(25)," \"");
         else if (StartsWith(line,"_ma_target_entity_instance.asym_id"))
             asym_id=Trim(line.substr(35));
+        else if (StartsWith(line,"loop_") || StartsWith(line,"#"))
+        {
+            _atom_site_count=0;
+            _atom_site["group_PDB"]=-1; // *
+            _atom_site["atom_id"]=-1;   // * atom name
+            _atom_site["alt_id"]=-1;
+            _atom_site["comp_id"]=-1;   // * resn
+            _atom_site["asym_id"]=-1;   // * chainID
+            _atom_site["seq_id"]=-1;    // * resi
+            _atom_site["icode"]=-1;     // insertion code
+            _atom_site["model_num"]=-1; // model index
+            _atom_site["Cartn_x"]=-1;   // *
+            _atom_site["Cartn_y"]=-1;   // *
+            _atom_site["Cartn_z"]=-1;   // *
+            _atom_site["bfactor"]=-1;
+            model_num=-1;
+        }
+        else if (StartsWith(line,"_atom_site."))
+        {
+            if (StartsWith(line,"_atom_site.group_PDB"))
+                _atom_site["group_PDB"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.label_atom_id"))
+                _atom_site["atom_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.label_alt_id"))
+                _atom_site["alt_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.label_comp_id") && 
+                _atom_site["comp_id"]<0)
+                _atom_site["comp_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.auth_comp_id"))
+                _atom_site["comp_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.label_asym_id") &&
+                _atom_site["asym_id"]<0)
+                _atom_site["asym_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.auth_asym_id"))
+                _atom_site["asym_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.label_seq_id") &&
+                 _atom_site["seq_id"]<0)
+                _atom_site["seq_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.auth_seq_id"))
+                _atom_site["seq_id"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.pdbx_PDB_ins_code"))
+                _atom_site["icode"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.pdbx_PDB_model_num"))
+                _atom_site["model_num"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.Cartn_x"))
+                _atom_site["Cartn_x"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.Cartn_y"))
+                _atom_site["Cartn_y"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.Cartn_z"))
+                _atom_site["Cartn_z"]=_atom_site_count;
+            else if (StartsWith(line,"_atom_site.B_iso_or_equiv"))
+                _atom_site["bfactor"]=_atom_site_count;
+            _atom_site_count++;
+        }
+        else if (_atom_site_count>=8 && !StartsWith(line,"_atom_site."))
+        {
+            if (_atom_site["group_PDB"]<0 || _atom_site["atom_id"]<0 ||
+                _atom_site["comp_id"]<0   || _atom_site["asym_id"]<0 ||
+                _atom_site["seq_id"]<0    || _atom_site["Cartn_x"]<0 ||
+                _atom_site["Cartn_y"]<0   || _atom_site["Cartn_z"]<0)
+                continue;
+            Split(line,pdb_line_vec);
+            group_PDB=pdb_line_vec[_atom_site["group_PDB"]];
+            resn=pdb_line_vec[_atom_site["comp_id"]];
+            if ((allowX==0 && group_PDB!="ATOM")||
+                (allowX==1 && group_PDB!="ATOM" &&  
+               !(group_PDB=="HETATM" && resn=="MSE"))||
+                (group_PDB!="ATOM" && group_PDB!="HETATM"))
+                continue;
+            if (_atom_site["model_num"]>=0)
+                if (model_num.size()>=0) model_num=pdb_line_vec[_atom_site["model_num"]];
+                else if (model_num!=pdb_line_vec[_atom_site["model_num"]]) continue;
+            if (_atom_site["alt_id"]>=0 && pdb_line_vec[_atom_site["alt_id"]]!="."
+                && pdb_line_vec[_atom_site["alt_id"]]!="A") continue;
+            atom.name=pdb_line_vec[_atom_site["atom_id"]];
+            if (resn=="MSE" && atom.name=="SE") atom.name=" SD ";
+            if      (resn.size()==1) resn="  "+resn;
+            else if (resn.size()==2) resn=" "+resn;
+            else if (resn=="MSE") resn="MET";
+            if      (atom.name.size()==1) atom.name+=' ';
+            if      (atom.name.size()==2) atom.name+=' ';
+            if      (atom.name.size()==3) atom.name=' '+atom.name;
+            if      (atom.name==" O1P")   atom.name=" OP1";
+            else if (atom.name==" O2P")   atom.name=" OP2";
+            else if (atom.name[3]=='*')   atom.name=atom.name.substr(0,3)+"'";
+            atom.xyz[0]=XYZtoint32(pdb_line_vec[_atom_site["Cartn_x"]]);
+            atom.xyz[1]=XYZtoint32(pdb_line_vec[_atom_site["Cartn_y"]]);
+            atom.xyz[2]=XYZtoint32(pdb_line_vec[_atom_site["Cartn_z"]]);
+            if (_atom_site["bfactor"]>=0) 
+                atom.bfactor=Btoint16(pdb_line_vec[_atom_site["bfactor"]]);
+            if (chainID!=pdb_line_vec[_atom_site["asym_id"]])
+            {
+                chain.residues.clear();
+                chainID=pdb_line_vec[_atom_site["asym_id"]];
+                if (chainID==".") chainID="_";
+                chain.chainID=chainID[0];
+                pep.chains.push_back(chain);
+                residue.atoms.clear();
+                residue.resn=resn;
+                resi=pdb_line_vec[_atom_site["seq_id"]];
+                residue.resi=atoi(resi.c_str());
+                residue.icode=' ';
+                if (_atom_site["icode"]>=0)
+                {
+                    icode=pdb_line_vec[_atom_site["icode"]];
+                    residue.icode=icode[0];
+                    if (icode=="." || icode=="?") residue.icode=' ';
+                }
+                pep.chains[c].residues.push_back(residue);
+            }
+            c=pep.chains.size()-1;
+            r=pep.chains[c].residues.size()-1;
+            if (resi!=pdb_line_vec[_atom_site["seq_id"]] || (
+                _atom_site["icode"]>=0 && icode!=pdb_line_vec[_atom_site["icode"]]))
+            {
+                residue.atoms.clear();
+                residue.resn=resn;
+                resi=pdb_line_vec[_atom_site["seq_id"]];
+                residue.resi=atoi(resi.c_str());
+                residue.icode=' ';
+                if (_atom_site["icode"]>=0)
+                {
+                    icode=pdb_line_vec[_atom_site["icode"]];
+                    residue.icode=icode[0];
+                    if (icode=="." || icode=="?") residue.icode=' ';
+                }
+                pep.chains[c].residues.push_back(residue);
+                r=pep.chains[c].residues.size()-1;
+            }
+            pep.chains[c].residues[r].atoms.push_back(atom);
+            for (s=0;s<pdb_line_vec.size();s++) pdb_line_vec[s].clear();
+            pdb_line_vec.clear();
+        }
     }
+    vector<string> ().swap(pdb_line_vec);
     if (model_group_name.size())
         header+="TITLE     "+model_group_name+" FOR "+pdbx_description+
             " ("+db_accession+")\n";
@@ -298,7 +442,7 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     if (organism_scientific.size())
         header+="SOURCE   2 ORGANISM_SCIENTIFIC: "+organism_scientific+";\n";
     if (ncbi_taxonomy_id.size())
-        header+="SOURCE   3 ORGANISM_TAXID: "+ncbi_taxonomy_id+";\n";
+        header+="SOURCE   3 ORGANISM_TAXID: "+ncbi_taxonomy_id+"\n";
     if (seq_db_align_begin.size() && seq_db_align_end.size() && 
         db_accession.size() && db_code.size())
     {
@@ -320,10 +464,10 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     }
     
     /* clean up */
+    map<string,int> ().swap(_atom_site);
     atom.xyz.clear();
     residue.atoms.clear();
     chain.residues.clear();
-    vector<string> ().swap(_atom_site);
     return pep;
 }
 

@@ -3,9 +3,10 @@ const char* docstring=""
 "    convert PDC format input to PDB format output\n"
 "\n"
 "option:\n"
-"    -f={0,1}   output format\n"
-"               0: (default) PDB\n"
-"               1: mmCIF/PDBx\n"
+"    -f={0,1,2} output format\n"
+"               0: (default) determined by filename\n"
+"               1: PDB\n"
+"               2: mmCIF/PDBx\n"
 ;
 
 #include "PDBParser.hpp"
@@ -36,13 +37,25 @@ int main(int argc,char **argv)
         cerr<<docstring;
         return 1;
     }
+
+    if (outfmt==0)
+    {
+        if (EndsWith(outfile,".cif")) outfmt=2;
+        else if (EndsWith(outfile,".pdb")) outfmt=1;
+        else 
+        {
+            cerr<<"WARNING! output PDB because format cannot be determined by output filename.\n"
+                <<"use -f=1 or -f=2 to specify an output format"<<endl;
+            outfmt=1;
+        }
+    }
     
     map<string, vector<string> > ordMapR;
     initialize_reverse_atom_order_map(ordMapR);
     string header;
     ModelUnit pdb_entry=read_pdc_structure(infile.c_str(),header,ordMapR);
-    if (outfmt==0) write_pdb_structure(outfile.c_str(),pdb_entry,header);
-    else write_cif_structure(outfile.c_str(),pdb_entry,header);
+    if (outfmt==2) write_cif_structure(outfile.c_str(),pdb_entry,header);
+    else           write_pdb_structure(outfile.c_str(),pdb_entry,header);
 
     /* clean up */
     string ().swap(infile);

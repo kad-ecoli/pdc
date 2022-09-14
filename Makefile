@@ -1,6 +1,6 @@
 CC=g++
 CFLAGS=-O3
-LDFLAGS=-static
+LDFLAGS=#-static
 
 all: pdc pdd
 

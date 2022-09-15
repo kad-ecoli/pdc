@@ -178,7 +178,7 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
         filename_str.substr(filename_str.length()-3,3)==".gz")
     {
         // gzip pdb
-        fp_gz.open("zcat "+filename_str);
+        fp_gz.open("gunzip -c "+filename_str);
         use_pstream=1;
     }
     else
@@ -240,7 +240,7 @@ ModelUnit read_cif_structure(const char *filename,string &header,
         filename_str.substr(filename_str.length()-3,3)==".gz")
     {
         // gzip pdb
-        fp_gz.open("zcat "+filename_str);
+        fp_gz.open("gunzip -c "+filename_str);
         use_pstream=1;
     }
     else
@@ -511,20 +511,6 @@ string write_pdb_structure(ChainUnit &chain,int &i)
     return buf.str();
 }
 
-/* filename - full output filename, write to stdout if filename=="-" */
-void write_pdb_structure(const char *filename,ChainUnit &chain)
-{
-    int i=1;
-    if (strcmp(filename,"-")==0)
-        cout<<write_pdb_structure(chain,i);
-    else
-    {
-        ofstream fp(filename);
-        fp<<write_pdb_structure(chain,i);
-        fp.close();
-    }
-}
-
 string write_pdb_structure(ModelUnit &pep,string &header)
 {
     string txt;
@@ -593,15 +579,20 @@ string write_pdb_structure(ModelUnit &pep,string &header)
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */
-void write_pdb_structure(const char *filename,ModelUnit &pep,string &header)
+void write_pdb_structure(const string &filename,ModelUnit &pep,string &header)
 {
-    if (strcmp(filename,"-")==0)
+    if (filename=="-")
         cout<<write_pdb_structure(pep,header)<<flush;
     else
     {
-        ofstream fp(filename);
+        string filename_str=filename;
+        if (EndsWith(filename,".gz")) filename_str=filename.substr(0,filename.size()-3);
+        ofstream fp(filename_str.c_str());
         fp<<write_pdb_structure(pep,header)<<flush;
         fp.close();
+        if (EndsWith(filename,".gz"))
+            int r=system(((string)("gzip -f "+filename_str)).c_str());
+        filename_str.clear();
     }
 }
 
@@ -1114,15 +1105,20 @@ string write_pdc_structure(ModelUnit &pep,string &header)
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */
-void write_pdc_structure(const char *filename,ModelUnit &pep,string &header)
+void write_pdc_structure(const string &filename,ModelUnit &pep,string &header)
 {
-    if (strcmp(filename,"-")==0)
+    if (filename=="-")
         cout<<write_pdc_structure(pep,header)<<flush;
     else
     {
-        ofstream fp(filename);
+        string filename_str=filename;
+        if (EndsWith(filename,".gz")) filename_str=filename.substr(0,filename.size()-3);
+        ofstream fp(filename_str.c_str());
         fp<<write_pdc_structure(pep,header)<<flush;
         fp.close();
+        if (EndsWith(filename,".gz"))
+            int r=system(((string)("gzip -f "+filename_str)).c_str());
+        filename_str.clear();
     }
 }
 
@@ -1162,7 +1158,7 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
         filename_str.substr(filename_str.length()-3,3)==".gz")
     {
         // gzip pdb
-        fp_gz.open("zcat "+filename_str);
+        fp_gz.open("gunzip -c "+filename_str);
         use_pstream=1;
     }
     else
@@ -1370,19 +1366,21 @@ string write_cif_structure(ModelUnit &pep,string &header)
     {
         if (StartsWith(line_vec[s],"DBREF "))
         {
-            txt=Trim(line_vec[s].substr(33,8));
-            r=atoi(line_vec[s].substr(55,5).c_str());
+            vector<string> dbref_line_vec;
+            Split(line_vec[s],dbref_line_vec);
+            db_name=dbref_line_vec[5];
+            db_accession=dbref_line_vec[6];
+            db_code=dbref_line_vec[7];
+            seq_db_align_begin=dbref_line_vec[8];
+            seq_db_align_end  =dbref_line_vec[9];
+            r=atoi(seq_db_align_begin.c_str());
             r/=200;
             r++;
-            buf<<"data_AF-"<<txt<<"-F"<<r
-                <<"\n#\n_entry.id AF-"<<txt<<"-F"<<r<<"\n#\n";
+            buf<<"data_AF-"<<db_accession<<"-F"<<r
+                <<"\n#\n_entry.id AF-"<<db_accession<<"-F"<<r<<"\n#\n";
             txt=buf.str();
             buf.str(string());
-            db_accession=Trim(line_vec[s].substr(33,8));
-            db_code=Trim(line_vec[s].substr(42,12));
-            db_name=Trim(line_vec[s].substr(26,6));
-            seq_db_align_begin=Trim(line_vec[s].substr(55,5));
-            seq_db_align_end  =Trim(line_vec[s].substr(62,5));
+            vector<string>().swap(dbref_line_vec);
         }
         if (StartsWith(line_vec[s],"TITLE "))
         {
@@ -1456,7 +1454,7 @@ string write_cif_structure(ModelUnit &pep,string &header)
         for (r=0;r<pep.chains[c].residues.size();r++)
         {
             buf<<"1 n "<<pep.chains[c].residues[r].resn<<' '
-                <<left<<setw(5)<<pep.chains[c].residues[r].resi<<endl;
+                <<left<<setw(4)<<pep.chains[c].residues[r].resi<<endl;
             txt+=buf.str();
             buf.str(string());
             global_metric+=pep.chains[c].residues[r].atoms[1].bfactor;
@@ -1543,7 +1541,7 @@ string write_cif_structure(ModelUnit &pep,string &header)
                 <<pep.chains[c].residues[r].resn<<' '
                 <<left<<setw(4)<<pep.chains[c].residues[r].resi
                 <<" "<<pep.chains[c].chainID<<" "
-                <<left<<setw(5)<<pep.chains[c].residues[r].resi<<endl;
+                <<left<<setw(4)<<pep.chains[c].residues[r].resi<<endl;
             txt+=buf.str();
             buf.str(string());
         }
@@ -1627,15 +1625,20 @@ string write_cif_structure(ModelUnit &pep,string &header)
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */
-void write_cif_structure(const char *filename,ModelUnit &pep,string &header)
+void write_cif_structure(const string &filename,ModelUnit &pep,string &header)
 {
-    if (strcmp(filename,"-")==0)
+    if (filename=="-")
         cout<<write_cif_structure(pep,header)<<flush;
     else
     {
-        ofstream fp(filename);
+        string filename_str=filename;
+        if (EndsWith(filename,".gz")) filename_str=filename.substr(0,filename.size()-3);
+        ofstream fp(filename_str.c_str());
         fp<<write_cif_structure(pep,header)<<flush;
         fp.close();
+        if (EndsWith(filename,".gz"))
+            int r=system(((string)("gzip -f "+filename_str)).c_str());
+        filename_str.clear();
     }
 }
 

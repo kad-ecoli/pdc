@@ -1620,8 +1620,8 @@ string write_cif_structure(ModelUnit &pep,string &header)
         }
     }
     txt+="#\n";
-    return txt;
     vector<string> ().swap(line_vec);
+    return txt;
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */

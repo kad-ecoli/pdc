@@ -1,7 +1,7 @@
 # PDC: Protein Data Compressor #
 
 ## Introduction ##
-With recent development of high accuracy protein structure predictors, more and more predicted protein structure models have been deposited to public databases such as the [AlphaFold DB](https://alphafold.ebi.ac.uk/). This leads to hugh hard disk comsumptions. For example, the full AlphaFold DB release in year 2022 has 23 TB of data, which is only expected to increase significantly in the near future. To address this issue, the PDC package aims to convert PDB and mmCIF format protein structure models to and from the highly compressed .pdc format.
+With recent development of high accuracy protein structure predictors, more and more predicted protein structure models have been deposited to public databases such as the [AlphaFold DB](https://alphafold.ebi.ac.uk/). This leads to hugh hard disk comsumptions. For example, the full AlphaFold DB release in year 2022 has 23 TB of data, which is only expected to increase significantly in the near future. To address this issue, the PDC package aims to convert full atomic PDB and mmCIF format protein structure models to and from the highly compressed .pdc format.
 
 ## Installation ##
 ```bash
@@ -27,12 +27,6 @@ PDC decrease the size of protein coordinate files in PDB or mmCIF format through
 3. Delta encoding: store the difference in coordinate/bfactor from the previous value rather than the actual value, which is usually within 32.767 and can be stored by int16. If the value is greater than or equal to INT16_MAX, or less than or equal to INT16_MIN, the actual value can be stored separately.
   * For N atom: store the difference to the previous C atom
   * For other atoms: store the difference to the previous atom
-4. (Optional) Under lossy mode, the coordinates of some atoms will be discarded, including:
-  * backbone atoms: O (recovered from N, CA, C and OXT during decompression)
-  * HIS sidechain atoms: CG, ND1, NE2 (recovered from CB, CE1, CD2 during decompression)
-  * PHE sidechain atoms: CG, CD1, CD2, CZ (recovered from CB, CE1, CE2 during decompression)
-  * TYR sidechain atoms: CG, CD1, CD2, CZ, OH (recovered from CB, CE1, CE2 during decompression)
-  * TRP sidechain atoms: CG, CD1, CD2, NE1, CE2, CZ3, CH2 (recovered from CB, CE3, CZ2 during decompression)
 
 ## Limitations ##
 PDC is specifically designed for protein models in the AlphaFold database. It is not able to convert all information of a PDB or mmCIF file, especially those from the [PDB database](https://www.rcsb.org/). In particular,

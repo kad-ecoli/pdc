@@ -10,9 +10,13 @@ make
 PDC does not run natively on Windows. However, it can be run on Windows Subsystem for Linux.
 
 ## Usage ##
-Compress:
+Lossless compression:
 ```bash
 pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz
+```
+Lossy compression:
+```bash
+pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz -l=1
 ```
 Uncompress:
 ```bash
@@ -24,9 +28,8 @@ PDC decrease the size of protein coordinate files in PDB or mmCIF format through
 1. Removal of repetitive information among different atoms, such as the chain ID and residue index.
 2. Use [int](https://en.cppreference.com/w/cpp/types/integer) and ``char`` instead of ``string`` to store coordinates and B-factors.
    Specifically, since xyz and bfactor can be expressed as %8.3f and %6.2f, they are in the range of -999.999 to 9999.999 and -99.99 to 999.99, respectively. This means that they can be expressed as integers in the range of 0 to 10999998 and 0 to 109998, respectively, both of which can be stored by unint32.
-3. Delta encoding: store the difference in coordinate/bfactor from the previous value rather than the actual value, which is usually within 32.767 and can be stored by int16. If the value is greater than or equal to INT16_MAX, or less than or equal to INT16_MIN, the actual value can be stored separately.
-  * For N atom: store the difference to the previous C atom
-  * For other atoms: store the difference to the previous atom
+3. Delta encoding: store the difference in coordinate/bfactor from the previous value rather than the actual value, which is can be stored by int16 or int8.
+4. Under lossy compression mode, store the torsion angles rather than the coordinates.
 
 ## Limitations ##
 PDC is specifically designed for protein models in the AlphaFold database. It is not able to convert all information of a PDB or mmCIF file, especially those from the [PDB database](https://www.rcsb.org/). In particular,

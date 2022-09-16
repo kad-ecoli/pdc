@@ -15,6 +15,8 @@
 #include <cstdint>
 #include "StringTools.hpp"
 #include "pstream.h"
+#include "GeometryTools.hpp"
+#include "Superpose.hpp"
 
 using namespace std;
 
@@ -1003,11 +1005,8 @@ string write_pdc_structure(ModelUnit &pep,string &header)
     char icode_prev=' ';
     int L;
     int32_t x,y,z,bfactor;
-    int32_t prev_x=pep.chains[c].residues[0].atoms[0].xyz[0];
-    int32_t prev_y=pep.chains[c].residues[0].atoms[0].xyz[1];
-    int32_t prev_z=pep.chains[c].residues[0].atoms[0].xyz[2];
-    int32_t dxf,dyf,dzf,dbf;
-    int16_t dx16,dy16,dz16,db16;
+    int32_t prev_x,prev_y,prev_z;
+    int16_t dx16,dy16,dz16;
     for (c=0;c<pep.chains.size();c++)
     {
         moltype=check_moltype(pep.chains[c]);
@@ -1049,6 +1048,9 @@ string write_pdc_structure(ModelUnit &pep,string &header)
             }
         }
         buf<<'\n';
+        prev_x=pep.chains[c].residues[0].atoms[0].xyz[0];
+        prev_y=pep.chains[c].residues[0].atoms[0].xyz[1];
+        prev_z=pep.chains[c].residues[0].atoms[0].xyz[2];
         buf.write((char *)&prev_x,sizeof(int32_t));
         buf.write((char *)&prev_y,sizeof(int32_t));
         buf.write((char *)&prev_z,sizeof(int32_t));
@@ -1122,6 +1124,235 @@ void write_pdc_structure(const string &filename,ModelUnit &pep,string &header)
     }
 }
 
+void xyz2double(AtomUnit &atom, double *c1)
+{
+    c1[0]=atom.xyz[0]*0.001;
+    c1[1]=atom.xyz[1]*0.001;
+    c1[2]=atom.xyz[2]*0.001;
+}
+
+/* lossy compression */
+string write_pdc_lossy_structure(ModelUnit &pep,string &header)
+{
+    string txt=header;
+    if (pep.chains.size()==0) return txt;
+    stringstream buf;
+    int a,c,r;
+    char moltype;
+    int bfactor_mode;
+    pdb2fasta(pep);
+    int resi_prev=0;
+    char icode_prev=' ';
+    int L;
+    int32_t x,y,z,bfactor;
+    int32_t prev_x,prev_y,prev_z;
+    int16_t dx16,dy16,dz16,db16;
+    double tor;
+    int8_t tor8;
+    int8_t db8;
+    double c1[3],c2[3],c3[3],c4[3];
+    string resn;
+    for (c=0;c<pep.chains.size();c++)
+    {
+        moltype=check_moltype(pep.chains[c]);
+        bfactor_mode=check_bfactor_mode(pep.chains[c]);
+        L=pep.chains[c].residues.size();
+        buf <<"@a\n>"<<pep.chains[c].chainID<<'\t'
+            <<moltype<<'\t'<<bfactor_mode<<'\t'<<L<<"\t1\n"
+            <<pep.chains[c].sequence<<'\n';
+        for (r=0;r<L;r++)
+        {
+            if (r==0)
+            {
+                resi_prev =pep.chains[c].residues[0].resi;
+                icode_prev=pep.chains[c].residues[0].icode;
+                buf<<resi_prev;
+                if (icode_prev!=' ') buf<<icode_prev;
+            }
+            else
+            {
+                if (icode_prev!=' ')
+                {
+                    buf<<','<<pep.chains[c].residues[r].resi;
+                    if (pep.chains[c].residues[r].icode!=' ')
+                        buf<<pep.chains[c].residues[r].icode;
+                }
+                else
+                {
+                    if (pep.chains[c].residues[r].icode!=' ')
+                        buf<<'~'<<resi_prev
+                           <<','<<pep.chains[c].residues[r].resi
+                           <<pep.chains[c].residues[r].icode;
+                    else if (pep.chains[c].residues[r].resi!=resi_prev+1)
+                        buf<<'~'<<resi_prev;
+                    else if (r==L-1)
+                        buf<<'~'<<pep.chains[c].residues[r].resi;
+                }
+                resi_prev =pep.chains[c].residues[r].resi;
+                icode_prev=pep.chains[c].residues[r].icode;
+            }
+        }
+        buf<<'\n';
+        for (r=0;r<L;r++)
+        {
+            prev_x=pep.chains[c].residues[r].atoms[1].xyz[0]; // CA
+            prev_y=pep.chains[c].residues[r].atoms[1].xyz[1];
+            prev_z=pep.chains[c].residues[r].atoms[1].xyz[2];
+            buf.write((char *)&prev_x,sizeof(int32_t));
+            buf.write((char *)&prev_y,sizeof(int32_t));
+            buf.write((char *)&prev_z,sizeof(int32_t));
+        }
+        /* phi, psi, omega */
+        for (r=0;r<L;r++)
+        {
+            /* N-CA-C-N[+1] or N-CA-C-OXT */
+            xyz2double(pep.chains[c].residues[r].atoms[0],c1); //N
+            xyz2double(pep.chains[c].residues[r].atoms[1],c2); //CA
+            xyz2double(pep.chains[c].residues[r].atoms[2],c3); //C
+            if (r+1<L) xyz2double(pep.chains[c].residues[r+1].atoms[0],c4);//N[+1]
+            else     xyz2double(pep.chains[c].residues[r].atoms.back(),c4);//OXT
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+
+            if (r+1<L)
+            {
+                /* CA-C-N[+1]-CA[+1] */
+                xyz2double(pep.chains[c].residues[r].atoms[1],c1); //CA
+                xyz2double(pep.chains[c].residues[r].atoms[2],c2); //C
+                xyz2double(pep.chains[c].residues[r+1].atoms[0],c3); //N[+1]
+                xyz2double(pep.chains[c].residues[r+1].atoms[1],c4); //CA[+1]
+                tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+                tor8=tor*INT8_MAX/180.+0.5;
+                buf.write((char *)&tor8,sizeof(int8_t));
+
+                /* C-N[+1]-CA[+1]-C[+1] */
+                xyz2double(pep.chains[c].residues[r].atoms[2],c1); //C
+                xyz2double(pep.chains[c].residues[r+1].atoms[0],c2); //N[+1}
+                xyz2double(pep.chains[c].residues[r+1].atoms[1],c3); //CA[+1]
+                xyz2double(pep.chains[c].residues[r+1].atoms[2],c4); //C[+1]
+                tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+                tor8=tor*INT8_MAX/180.+0.5;
+                buf.write((char *)&tor8,sizeof(int8_t));
+            }
+        }
+        /* side chain torsion */
+        for (r=0;r<L;r++)
+        {
+            resn=pep.chains[c].residues[r].resn;
+            if (resn=="GLY" || resn=="ALA") continue; //2
+
+            /* chi-1 */
+            xyz2double(pep.chains[c].residues[r].atoms[0],c1); //N
+            xyz2double(pep.chains[c].residues[r].atoms[1],c2); //CA
+            xyz2double(pep.chains[c].residues[r].atoms[3],c3); //CB
+            if (resn=="THR") xyz2double(pep.chains[c].residues[r].atoms[6],c4); //OG1
+            else             xyz2double(pep.chains[c].residues[r].atoms[5],c4); //CG
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+            if (resn=="CYS" || resn=="SER" || resn=="THR" || resn=="VAL" )
+                continue; // 2+4=6
+
+            /* chi-2: CA-CB-CG-XD: ARG LYS MET GLU GLN ILE LEU
+             * HIS TYR TRP PHE PRO ASP ASN */
+            xyz2double(pep.chains[c].residues[r].atoms[1],c1); //CA
+            xyz2double(pep.chains[c].residues[r].atoms[3],c2); //CB
+            xyz2double(pep.chains[c].residues[r].atoms[5],c3); //CG
+            if (resn=="ILE") xyz2double(pep.chains[c].residues[r].atoms[7],c4); //CD1
+            else             xyz2double(pep.chains[c].residues[r].atoms[6],c4); //XD
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+            if (resn=="HIS" || resn=="ILE" || resn=="PHE" || resn=="LEU" ||
+                resn=="TRP" || resn=="PRO" || resn=="ASN" || resn=="TYR" ||
+                resn=="ASP") continue; // 2+4+9=15
+
+            /* chi-3: CB-CG-CD-XE: ARG LYS GLN GLU MET */
+            xyz2double(pep.chains[c].residues[r].atoms[3],c1); //CB
+            xyz2double(pep.chains[c].residues[r].atoms[5],c2); //CG
+            xyz2double(pep.chains[c].residues[r].atoms[6],c3); //CD
+            if (resn=="GLN") xyz2double(pep.chains[c].residues[r].atoms[8],c4); //OE1
+            else             xyz2double(pep.chains[c].residues[r].atoms[7],c4); //XE
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+            if (resn=="GLN" || resn=="GLU" || resn=="MET") continue; // 2+4+9+3=18
+            
+            /* chi-4: CG-CD-XE-XZ: ARG LYS */
+            xyz2double(pep.chains[c].residues[r].atoms[5],c1); //CG
+            xyz2double(pep.chains[c].residues[r].atoms[6],c2); //CD
+            xyz2double(pep.chains[c].residues[r].atoms[7],c3); //XE
+            if (resn=="LYS") xyz2double(pep.chains[c].residues[r].atoms[8],c4); //NZ
+            else            xyz2double(pep.chains[c].residues[r].atoms[10],c4); //CZ
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+            if (resn=="LYS") continue; // 2+4+9+3+1=19
+            
+            /* chi-5: CD-NE-CZ-NH1: ARG */
+            xyz2double(pep.chains[c].residues[r].atoms[6],c1); //CD
+            xyz2double(pep.chains[c].residues[r].atoms[7],c2); //NE
+            xyz2double(pep.chains[c].residues[r].atoms[10],c3); //CZ
+            xyz2double(pep.chains[c].residues[r].atoms[8],c4); //NH1
+            tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+            tor8=tor*INT8_MAX/180.+0.5;
+            buf.write((char *)&tor8,sizeof(int8_t));
+        }
+        if (bfactor_mode==0)
+        {
+            bfactor=pep.chains[c].residues[0].atoms[0].bfactor;
+            buf.write((char *)&bfactor,sizeof(int16_t));
+        }
+        else if (bfactor_mode>=1)
+        {
+            for (r=0;r<pep.chains[c].residues.size();r++)
+            {
+                bfactor=pep.chains[c].residues[r].atoms[1].bfactor; // CA
+                buf.write((char *)&bfactor,sizeof(int16_t));
+            }
+            if (bfactor_mode==2)
+            {
+                for (r=0;r<pep.chains[c].residues.size();r++)
+                {
+                    bfactor=pep.chains[c].residues[r].atoms[1].bfactor; // CA
+                    for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+                    {
+                        if (a==1) continue;
+                        db16=0.1*(pep.chains[c].residues[r].atoms[a].bfactor-bfactor+0.5);
+                        if (db16>=INT8_MAX) db8=INT8_MAX;
+                        else if (db16<=INT8_MIN) db8=INT8_MIN;
+                        else db8=db16;
+                        buf.write((char *)&db8,sizeof(int8_t));
+                    }
+                }
+            }
+        }
+    }
+    buf<<flush;
+    txt+=buf.str()+"\nEND\n";
+    buf.str(string());
+    return txt;
+}
+
+/* filename - full output filename, write to stdout if filename=="-" */
+void write_pdc_lossy_structure(const string &filename,ModelUnit &pep,string &header)
+{
+    if (filename=="-")
+        cout<<write_pdc_lossy_structure(pep,header)<<flush;
+    else
+    {
+        string filename_str=filename;
+        if (EndsWith(filename,".gz")) filename_str=filename.substr(0,filename.size()-3);
+        ofstream fp(filename_str.c_str());
+        fp<<write_pdc_lossy_structure(pep,header)<<flush;
+        fp.close();
+        if (EndsWith(filename,".gz"))
+            int r=system(((string)("gzip -f "+filename_str)).c_str());
+        filename_str.clear();
+    }
+}
+
 void initialize_reverse_atom_order_map(map<string, vector<string> > & ordMapR)
 {
     map<string, map<string,int> >ordMap;
@@ -1137,10 +1368,9 @@ void initialize_reverse_atom_order_map(map<string, vector<string> > & ordMapR)
     }
 }
 
-ModelUnit read_pdc_structure(const char *filename,string &header,
+int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
     map<string, vector<string> > & ordMapR)
 {
-    ModelUnit pep;
     ChainUnit chain;
     ResidueUnit residue;
     AtomUnit atom;
@@ -1174,8 +1404,13 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
     int a,r,c;
     int32_t prev_x,prev_y,prev_z;
     int32_t x,y,z,bfactor;
-    int16_t dx16,dy16,dz16,db16;
+    int16_t dx16,dy16,dz16;
+    int8_t db8;
     int atomNum;
+    int lossy=0;
+    double tor,ang,len;
+    int8_t tor8;
+    char aa;
     while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
     {
         if (use_stdin)        getline(cin,line);
@@ -1197,6 +1432,8 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
         moltype=line_vec[1][0];
         bfactor_mode=atoi(line_vec[2].c_str());
         L=atoi(line_vec[3].c_str());
+        lossy=0;
+        if (line_vec.size()>4) lossy=atoi(line_vec[4].c_str());
         line_vec.clear();
         c=pep.chains.size();
         if (use_stdin)        getline(cin,sequence);
@@ -1236,64 +1473,812 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
             }
         }
         line_vec.clear();
-        if (use_stdin)
+        if (lossy)
         {
-            cin.read((char *)&prev_x,sizeof(int32_t));
-            cin.read((char *)&prev_y,sizeof(int32_t));
-            cin.read((char *)&prev_z,sizeof(int32_t));
-        }
-        else if (use_pstream)
-        {
-            fp_gz.read((char *)&prev_x,sizeof(int32_t));
-            fp_gz.read((char *)&prev_y,sizeof(int32_t));
-            fp_gz.read((char *)&prev_z,sizeof(int32_t));
-        }
-        else
-        {
-            fp.read((char *)&prev_x,sizeof(int32_t));
-            fp.read((char *)&prev_y,sizeof(int32_t));
-            fp.read((char *)&prev_z,sizeof(int32_t));
-        }
-        for (r=0;r<L;r++)
-        {
-            residue.resi=resi_vec[r];
-            residue.icode=icode_vec[r];
-            residue.resn=aa1to3(sequence[r]);
-            for (a=0;a<ordMapR[residue.resn].size()+(r+1==L);a++)
+            double **allCA_arr;
+            double **allNCAC_arr;
+            NewArray(&allCA_arr,L,3);
+            NewArray(&allNCAC_arr,L*5+1,3);
+            double RotMatix[3][3];
+            double TranVect[3];
+            double **target_stru;
+            double **refrence_stru;
+            NewArray(&target_stru,3,3);
+            NewArray(&refrence_stru,3,3);
+            double v1[3],v2[3],v3[3];
+            double c1[3],c2[3],c3[3],c4[3];
+            for (r=0;r<L;r++)
             {
+                residue.resi=resi_vec[r];
+                residue.icode=icode_vec[r];
+                residue.resn=aa1to3(sequence[r]);
+                for (a=0;a<ordMapR[residue.resn].size()+(r+1==L);a++)
+                {
+                    atom.name=" OXT";
+                    if (a<ordMapR[residue.resn].size())
+                        atom.name=ordMapR[residue.resn][a];
+                    residue.atoms.push_back(atom);
+                }
                 if (use_stdin)
                 {
-                    cin.read((char *)&dx16,sizeof(int16_t));
-                    cin.read((char *)&dy16,sizeof(int16_t));
-                    cin.read((char *)&dz16,sizeof(int16_t));
+                    cin.read((char *)&prev_x,sizeof(int32_t));
+                    cin.read((char *)&prev_y,sizeof(int32_t));
+                    cin.read((char *)&prev_z,sizeof(int32_t));
                 }
                 else if (use_pstream)
                 {
-                    fp_gz.read((char *)&dx16,sizeof(int16_t));
-                    fp_gz.read((char *)&dy16,sizeof(int16_t));
-                    fp_gz.read((char *)&dz16,sizeof(int16_t));
+                    fp_gz.read((char *)&prev_x,sizeof(int32_t));
+                    fp_gz.read((char *)&prev_y,sizeof(int32_t));
+                    fp_gz.read((char *)&prev_z,sizeof(int32_t));
                 }
                 else
                 {
-                    fp.read((char *)&dx16,sizeof(int16_t));
-                    fp.read((char *)&dy16,sizeof(int16_t));
-                    fp.read((char *)&dz16,sizeof(int16_t));
+                    fp.read((char *)&prev_x,sizeof(int32_t));
+                    fp.read((char *)&prev_y,sizeof(int32_t));
+                    fp.read((char *)&prev_z,sizeof(int32_t));
                 }
-                prev_x+=dx16;
-                prev_y+=dy16;
-                prev_z+=dz16;
-                atom.xyz[0]=prev_x;
-                atom.xyz[1]=prev_y;
-                atom.xyz[2]=prev_z;
-                atom.name=" OXT";
-                if (a<ordMapR[residue.resn].size()) atom.name=ordMapR[residue.resn][a];
-                residue.atoms.push_back(atom);
+                residue.atoms[1].xyz[0]=prev_x;
+                residue.atoms[1].xyz[1]=prev_y;
+                residue.atoms[1].xyz[2]=prev_z;
+                chain.residues.push_back(residue);
+                residue.atoms.clear();
+                allCA_arr[r][0]=0.001*prev_x;
+                allCA_arr[r][1]=0.001*prev_y;
+                allCA_arr[r][2]=0.001*prev_z;
             }
-            prev_x=residue.atoms[2].xyz[0];
-            prev_y=residue.atoms[2].xyz[1];
-            prev_z=residue.atoms[2].xyz[2];
-            chain.residues.push_back(residue);
-            residue.atoms.clear();
+            allNCAC_arr[0][0]=1.46 * cos(deg2rad(110.8914));
+            allNCAC_arr[0][1]=allNCAC_arr[0][2]=0;
+            allNCAC_arr[1][0]=allNCAC_arr[1][1]=allNCAC_arr[1][2]=0;
+            allNCAC_arr[0][1]=1.46 * sin(deg2rad(110.8914));
+            allNCAC_arr[2][0]=1.52;
+            allNCAC_arr[2][1]=allNCAC_arr[2][2]=0;
+            allNCAC_arr[3][0]=allNCAC_arr[3][1]=allNCAC_arr[3][2]=0;
+            allNCAC_arr[4][0]=allNCAC_arr[4][1]=allNCAC_arr[4][2]=0;
+            /* phi, psi, omega */
+            double N_CA_C_angle=111;
+            double CA_C_O_angle=120.5;
+            double N_C_CA_CB_diangle=122.6;
+            double N_CA_C_O_diangle =120.0; // LTRKDEQMHFYW
+            string resn;
+            for (r=0;r<L;r++)
+            {
+                aa=aa3to1(chain.residues[r].resn);
+
+                N_CA_C_angle= 111.;
+                CA_C_O_angle=120.5;
+                N_C_CA_CB_diangle=122.6;
+                N_CA_C_O_diangle =120.0; // LTRKDEQMHFYW
+
+                if      (aa=='G')
+                {
+                    N_CA_C_angle=110.8914;
+                    CA_C_O_angle=120.5117;
+                }
+                else if (aa=='A')
+                {
+                    N_CA_C_angle=111.068;
+                }
+                else if (aa=='P')
+                {
+                    N_CA_C_O_diangle=-45.0;
+                    CA_C_O_angle=120.2945;
+                    N_CA_C_angle=112.7499;
+                    N_C_CA_CB_diangle=115.2975;
+                }
+                else if (string("SCUVIN").find(aa)!=string::npos)
+                {
+                    N_CA_C_O_diangle= -60.0;
+                    if (aa=='S')
+                    {
+                        N_CA_C_angle=111.2812;
+                        N_C_CA_CB_diangle=122.6618;
+                    }
+                    else if (aa=='C' || aa=='U')
+                    {
+                        N_CA_C_angle= 110.8856;
+                        N_C_CA_CB_diangle=122.5037;
+                    }
+                    else if (aa=='V')
+                    {
+                        CA_C_O_angle=120.5686;
+                        N_CA_C_angle=109.7698;
+                        N_C_CA_CB_diangle=123.2347;
+                    }
+                    else if (aa=='I')
+                    {
+                        CA_C_O_angle=120.5403;
+                        N_CA_C_angle=109.7202;
+                        N_C_CA_CB_diangle=123.2347;
+                    }
+                    else if (aa=='N') 
+                    {
+                        CA_C_O_angle=120.4826;
+                        N_CA_C_angle=111.5;
+                        N_C_CA_CB_diangle=123.2254;
+                    }
+                }
+                else if (aa=='L')
+                {
+                    CA_C_O_angle=120.4647;
+                    N_CA_C_angle=110.8652;
+                    N_C_CA_CB_diangle=122.4948;
+                }
+                else if (aa=='T')
+                {
+                    CA_C_O_angle=120.5359;
+                    N_CA_C_angle=110.7014;
+                    N_C_CA_CB_diangle=123.0953;
+                }
+                else if (aa=='R'||aa=='K'||aa=='O')
+                {
+                    CA_C_O_angle=120.54;
+                    N_CA_C_angle=111.08;
+                    N_C_CA_CB_diangle=122.76;
+                    if (aa=='R') N_CA_C_angle=110.98;
+                }
+                else if (aa=='D')
+                {
+                    CA_C_O_angle=120.51;
+                    N_CA_C_angle=111.03;
+                    N_C_CA_CB_diangle=122.82;
+                }
+                else if (aa=='Q')
+                {
+                    CA_C_O_angle=120.5029;
+                    N_CA_C_angle=111.0849;
+                    N_C_CA_CB_diangle=122.8134;
+                }
+                else if (aa=='E')
+                {
+                    CA_C_O_angle=120.511;
+                    N_CA_C_angle=111.1703;
+                    N_C_CA_CB_diangle=122.8702;
+                }
+                else if (aa=='M')
+                {
+                    CA_C_O_angle=120.4816;
+                    N_CA_C_angle=110.9416;
+                    N_C_CA_CB_diangle=122.6733;
+                }
+                else if (aa=='H')
+                {
+                    CA_C_O_angle=120.4732;
+                    N_CA_C_angle=111.0859;
+                    N_C_CA_CB_diangle=122.6711;
+                }
+                else if (aa=='F')
+                {
+                    CA_C_O_angle=120.5316;
+                    N_CA_C_angle=110.7528;
+                    N_C_CA_CB_diangle=122.6054;
+                }
+                else if (aa=='Y')
+                {
+                    CA_C_O_angle=120.5434;
+                    N_CA_C_angle=110.9288;
+                    N_C_CA_CB_diangle=122.6023;
+                }
+                else if (aa=='W')
+                {
+                    CA_C_O_angle=120.5117;
+                    N_CA_C_angle=110.8914;
+                    N_C_CA_CB_diangle=122.6112;
+                }
+
+                /* N-CA-C-N[+1] or N-CA-C-OXT */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                calculateCoordinates(allNCAC_arr[(r+1)*5],
+                    allNCAC_arr[r*5],allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],
+                    1.33,116.642992978143,tor);
+
+                if (r+1<L)
+                {
+                    /* CA-C-N[+1]-CA[+1] */
+                    if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                    else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                    else                     fp.read((char *)&tor8,sizeof(int8_t));
+                    tor=tor8*180./INT8_MAX;
+                    calculateCoordinates(allNCAC_arr[(r+1)*5+1],
+                        allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],
+                        1.46,121.382215820277,tor);
+
+                    /* C-N[+1]-CA[+1]-C[+1] */
+                    if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                    else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                    else                     fp.read((char *)&tor8,sizeof(int8_t));
+                    tor=tor8*180./INT8_MAX;
+                    calculateCoordinates(allNCAC_arr[(r+1)*5+2],
+                        allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],allNCAC_arr[(r+1)*5+1],
+                        1.52,N_CA_C_angle,tor);
+                }
+                
+                /* N-C-CA-CB */
+                calculateCoordinates(allNCAC_arr[r*5+3],
+                    allNCAC_arr[r*5],allNCAC_arr[r*5+2],allNCAC_arr[r*5+1],
+                    1.52,109.5,N_C_CA_CB_diangle);
+                
+                /* N[+1]-CA-C-O */
+                calculateCoordinates(allNCAC_arr[r*5+4],
+                    allNCAC_arr[(r+1)*5],allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],
+                    1.23,CA_C_O_angle,180);
+            }
+            /* coordinate of N, C, O, CB, OXT */
+            int i,j;
+            v3[0]=v3[1]=v3[2]=0;
+            for (r=1;r<L-1;r++)
+            {
+                for (i=0;i<3;i++)
+                {
+                    refrence_stru[i][0]=allCA_arr[i+r-1][0];
+                    refrence_stru[i][1]=allCA_arr[i+r-1][1];
+                    refrence_stru[i][2]=allCA_arr[i+r-1][2];
+
+                    target_stru[i][0]=allNCAC_arr[(i+r-1)*5+1][0];
+                    target_stru[i][1]=allNCAC_arr[(i+r-1)*5+1][1];
+                    target_stru[i][2]=allNCAC_arr[(i+r-1)*5+1][2];
+                }
+                RotateCoor(target_stru, refrence_stru, 3, RotMatix, TranVect);
+                if (r==1) /* update first residue */
+                {
+                    v1[0]=target_stru[0][0];
+                    v1[1]=target_stru[0][1];
+                    v1[2]=target_stru[0][2];
+                    ChangeCoor(v1, RotMatix, TranVect, v2);
+                    v3[0]=refrence_stru[0][0]-v2[0];
+                    v3[1]=refrence_stru[0][1]-v2[1];
+                    v3[2]=refrence_stru[0][2]-v2[2];
+                    for (a=0;a<5;a++)
+                    {
+                        //if (a==1 || (a==3 && chain.residues[0].resn=="GLY"))
+                        if ((a==3 && chain.residues[0].resn=="GLY"))
+                            continue;
+                        v1[0]=allNCAC_arr[a][0];
+                        v1[1]=allNCAC_arr[a][1];
+                        v1[2]=allNCAC_arr[a][2];
+                        ChangeCoor(v1, RotMatix, TranVect, v2);
+                        if (a==4 && chain.residues[0].resn=="GLY")
+                        {
+                            chain.residues[0].atoms[3].xyz[0]=1000*(v2[0]+v3[0]);
+                            chain.residues[0].atoms[3].xyz[1]=1000*(v2[1]+v3[1]);
+                            chain.residues[0].atoms[3].xyz[2]=1000*(v2[2]+v3[2]);
+                        }
+                        else
+                        {
+                            chain.residues[0].atoms[a].xyz[0]=1000*(v2[0]+v3[0]);
+                            chain.residues[0].atoms[a].xyz[1]=1000*(v2[1]+v3[1]);
+                            chain.residues[0].atoms[a].xyz[2]=1000*(v2[2]+v3[2]);
+                        }
+                    }
+                }
+                if (r+1==L-1) /* update last residue */
+                {
+                    v1[0]=target_stru[2][0];
+                    v1[1]=target_stru[2][1];
+                    v1[2]=target_stru[2][2];
+                    ChangeCoor(v1, RotMatix, TranVect, v2);
+                    v3[0]=refrence_stru[2][0]-v2[0];
+                    v3[1]=refrence_stru[2][1]-v2[1];
+                    v3[2]=refrence_stru[2][2]-v2[2];
+                    for (a=0;a<6;a++)
+                    {
+                        if (a==1 || (a==3 && chain.residues[r+1].resn=="GLY"))
+                            continue;
+                        v1[0]=allNCAC_arr[(r+1)*5+a][0];
+                        v1[1]=allNCAC_arr[(r+1)*5+a][1];
+                        v1[2]=allNCAC_arr[(r+1)*5+a][2];
+                        ChangeCoor(v1, RotMatix, TranVect, v2);
+                        if (a==4 && chain.residues[r+1].resn=="GLY")
+                        {
+                            chain.residues[r+1].atoms[3].xyz[0]=1000*(v2[0]+v3[0]);
+                            chain.residues[r+1].atoms[3].xyz[1]=1000*(v2[1]+v3[1]);
+                            chain.residues[r+1].atoms[3].xyz[2]=1000*(v2[2]+v3[2]);
+                        }
+                        else if (a==5)
+                        {
+                            chain.residues[r+1].atoms.back().xyz[0]=1000*(v2[0]+v3[0]);
+                            chain.residues[r+1].atoms.back().xyz[1]=1000*(v2[1]+v3[1]);
+                            chain.residues[r+1].atoms.back().xyz[2]=1000*(v2[2]+v3[2]);
+                        }
+                        else
+                        {
+                            chain.residues[r+1].atoms[a].xyz[0]=1000*(v2[0]+v3[0]);
+                            chain.residues[r+1].atoms[a].xyz[1]=1000*(v2[1]+v3[1]);
+                            chain.residues[r+1].atoms[a].xyz[2]=1000*(v2[2]+v3[2]);
+                        }
+                    }
+                }
+
+                /* update current residue */
+                v1[0]=target_stru[1][0];
+                v1[1]=target_stru[1][1];
+                v1[2]=target_stru[1][2];
+                ChangeCoor(v1, RotMatix, TranVect, v2);
+                TranVect[0]+=refrence_stru[1][0]-v2[0];
+                TranVect[1]+=refrence_stru[1][1]-v2[1];
+                TranVect[2]+=refrence_stru[1][2]-v2[2];
+                for (a=0;a<5;a++)
+                {
+                    if (a==1 || (a==3 && chain.residues[r].resn=="GLY"))
+                        continue;
+                    v1[0]=allNCAC_arr[r*5+a][0];
+                    v1[1]=allNCAC_arr[r*5+a][1];
+                    v1[2]=allNCAC_arr[r*5+a][2];
+                    ChangeCoor(v1, RotMatix, TranVect, v2);
+                    if (a==4 && chain.residues[r].resn=="GLY")
+                    {
+                        chain.residues[r].atoms[3].xyz[0]=1000*v2[0];
+                        chain.residues[r].atoms[3].xyz[1]=1000*v2[1];
+                        chain.residues[r].atoms[3].xyz[2]=1000*v2[2];
+                    }
+                    else
+                    {
+                        chain.residues[r].atoms[a].xyz[0]=1000*v2[0];
+                        chain.residues[r].atoms[a].xyz[1]=1000*v2[1];
+                        chain.residues[r].atoms[a].xyz[2]=1000*v2[2];
+                    }
+                }
+            }
+            /* side chain atoms other than CB */
+            for (r=0;r<L;r++)
+            {
+                resn=chain.residues[r].resn;
+                if (resn=="GLY" || resn=="ALA") continue; //2
+
+                /* chi-1 */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                xyz2double(chain.residues[r].atoms[0],c1); //N
+                xyz2double(chain.residues[r].atoms[1],c2); //CA
+                xyz2double(chain.residues[r].atoms[3],c3); //CB
+                if (resn=="SER")
+                    calculateCoordinates(c4,c1,c2,c3,1.417,110.773,tor);
+                else if (resn=="CYS")
+                    calculateCoordinates(c4,c1,c2,c3,1.808,113.8169,tor);
+                else if (resn=="VAL" || resn=="ILE")
+                    calculateCoordinates(c4,c1,c2,c3,1.527,110.7,tor);
+                else if (resn=="LEU")
+                    calculateCoordinates(c4,c1,c2,c3,1.53,116.10,tor);
+                else if (resn=="THR")
+                    calculateCoordinates(c4,c1,c2,c3,1.43,109.18,tor); //OG1
+                else if (resn=="ARG" || resn=="LYS")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.83,tor);
+                else if (resn=="ASP")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.06,tor);
+                else if (resn=="ASN")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,112.62,tor);
+                else if (resn=="GLU")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.82,tor);
+                else if (resn=="GLN")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.75,tor);
+                else if (resn=="MET")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.68,tor);
+                else if (resn=="HIS")
+                    calculateCoordinates(c4,c1,c2,c3,1.49,113.74,tor);
+                else if (resn=="PRO")
+                    calculateCoordinates(c4,c1,c2,c3,1.49,104.21,tor);
+                else if (resn=="PHE")
+                    calculateCoordinates(c4,c1,c2,c3,1.50,113.85,tor);
+                else if (resn=="TYR")
+                    calculateCoordinates(c4,c1,c2,c3,1.51,113.8,tor);
+                else if (resn=="TRP")
+                    calculateCoordinates(c4,c1,c2,c3,1.50,114.10,tor);
+                if (resn=="THR")
+                {
+                    chain.residues[r].atoms[6].xyz[0]=1000.*c4[0]; //OG1
+                    chain.residues[r].atoms[6].xyz[1]=1000.*c4[1]; //OG1
+                    chain.residues[r].atoms[6].xyz[2]=1000.*c4[2]; //OG1
+                    calculateCoordinates(c4,c1,c2,c3,1.53,111.13,tor-120);
+                }
+                chain.residues[r].atoms[5].xyz[0]=1000.*c4[0]; //CG
+                chain.residues[r].atoms[5].xyz[1]=1000.*c4[1]; //CG
+                chain.residues[r].atoms[5].xyz[2]=1000.*c4[2]; //CG
+                if (resn=="ILE")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.527,110.7,tor-120);
+                    chain.residues[r].atoms[6].xyz[0]=1000.*c4[0]; //CG2
+                    chain.residues[r].atoms[6].xyz[1]=1000.*c4[1]; //CG2
+                    chain.residues[r].atoms[6].xyz[2]=1000.*c4[2]; //CG2
+                }
+                else if (resn=="VAL")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.527,110.7,tor+120);
+                    chain.residues[r].atoms[6].xyz[0]=1000.*c4[0]; //CG2
+                    chain.residues[r].atoms[6].xyz[1]=1000.*c4[1]; //CG2
+                    chain.residues[r].atoms[6].xyz[2]=1000.*c4[2]; //CG2
+                    continue;
+                }
+                else if (resn=="CYS" || resn=="SER" || resn=="THR")
+                    continue; // 2+4=6
+
+                /* chi-2: CA-CB-CG-XD: ARG LYS MET GLU GLN ILE LEU
+                 * HIS TYR TRP PHE PRO ASP ASN */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                xyz2double(chain.residues[r].atoms[1],c1); //CA
+                xyz2double(chain.residues[r].atoms[3],c2); //CB
+                xyz2double(chain.residues[r].atoms[5],c3); //CG
+                if (resn=="ILE")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.97,tor);
+                else if (resn=="LEU")
+                    calculateCoordinates(c4,c1,c2,c3,1.524,110.27,tor);
+                else if (resn=="ARG" || resn=="LYS")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,111.79,tor);
+                else if (resn=="ASP")
+                    calculateCoordinates(c4,c1,c2,c3,1.25,119.22,tor);//OD1
+                else if (resn=="ASN")
+                    calculateCoordinates(c4,c1,c2,c3,1.23,120.85,tor);//OD1
+                else if (resn=="GLU")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,113.31,tor);
+                else if (resn=="GLN")
+                    calculateCoordinates(c4,c1,c2,c3,1.52,112.78,tor);
+                else if (resn=="MET")
+                    calculateCoordinates(c4,c1,c2,c3,1.81,112.69,tor);
+                else if (resn=="HIS")
+                    calculateCoordinates(c4,c1,c2,c3,1.35,130.61,tor); //CD2
+                else if (resn=="PRO")
+                    calculateCoordinates(c4,c1,c2,c3,1.50,105.03,tor);
+                else if (resn=="PHE")
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,tor); //CD1
+                else if (resn=="TYR")
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.98,tor); //CD1
+                else if (resn=="TRP")
+                    calculateCoordinates(c4,c1,c2,c3,1.37,127.07,tor); //CD1
+                
+                if (resn=="ILE")
+                {
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //CD1
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //CD1
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD1
+                }
+                else
+                {
+                    chain.residues[r].atoms[6].xyz[0]=1000.*c4[0]; //XD
+                    chain.residues[r].atoms[6].xyz[1]=1000.*c4[1]; //XD
+                    chain.residues[r].atoms[6].xyz[2]=1000.*c4[2]; //XD
+                }
+                if (resn=="LEU")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.525,110.58,tor+120);//CD2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //CD2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //CD2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
+                    continue;
+                }
+                else if (resn=="ASP")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.25,118.218,tor+180);//OD2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //OD2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //OD2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //OD2
+                    continue;
+                }
+                else if (resn=="ASN")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.33,116.48,tor+180);//ND2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //ND2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //ND2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //ND2
+                    continue;
+                }
+                else if (resn=="HIS")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.38,122.85,tor+180);//ND1
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //ND1
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //ND1
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //ND1
+                    
+                    // CB_CG_ND1_CE1_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[5],c2); //CG
+                    xyz2double(chain.residues[r].atoms[7],c3); //ND1
+                    calculateCoordinates(c4,c1,c2,c3,1.32,108.5,180);//CE1
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //CE1
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //CE1
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //CE1
+                    
+                    // CB_CG_CD2_NE2_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[6],c3); //CD2
+                    calculateCoordinates(c4,c1,c2,c3,1.35,108.5,180);//NE2
+                    continue;
+                }
+                else if (resn=="PHE")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,tor+180); //CD2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //CD2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //CD2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
+
+                    // CB_CG_CD1_CE1_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[5],c2); //CG
+                    xyz2double(chain.residues[r].atoms[6],c3); //CD1
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //CE1
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //CE1
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //CE1
+
+                    // CB_CG_CD2_CE2_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[7],c3); //CD2
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE2
+                    chain.residues[r].atoms[9].xyz[0]=1000.*c4[0]; //CE2
+                    chain.residues[r].atoms[9].xyz[1]=1000.*c4[1]; //CE2
+                    chain.residues[r].atoms[9].xyz[2]=1000.*c4[2]; //CE2
+                    
+                    // CG_CD1_CE1_CZ_diangle = 0.0
+                    xyz2double(chain.residues[r].atoms[5],c1); //CG
+                    xyz2double(chain.residues[r].atoms[6],c2); //CD1
+                    xyz2double(chain.residues[r].atoms[8],c3); //CE1
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CZ
+                    chain.residues[r].atoms[10].xyz[0]=1000.*c4[0]; //CZ
+                    chain.residues[r].atoms[10].xyz[1]=1000.*c4[1]; //CZ
+                    chain.residues[r].atoms[10].xyz[2]=1000.*c4[2]; //CZ
+                    continue;
+                }
+                else if (resn=="TYR")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.82,tor+180); //CD2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //CD2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //CD2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
+
+                    // CB_CG_CD1_CE1_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[5],c2); //CG
+                    xyz2double(chain.residues[r].atoms[6],c3); //CD1
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //CE1
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //CE1
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //CE1
+
+                    // CB_CG_CD2_CE2_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[7],c3); //CD2
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE2
+                    chain.residues[r].atoms[9].xyz[0]=1000.*c4[0]; //CE2
+                    chain.residues[r].atoms[9].xyz[1]=1000.*c4[1]; //CE2
+                    chain.residues[r].atoms[9].xyz[2]=1000.*c4[2]; //CE2
+                    
+                    // CG_CD1_CE1_CZ_diangle = 0.0
+                    xyz2double(chain.residues[r].atoms[5],c1); //CG
+                    xyz2double(chain.residues[r].atoms[6],c2); //CD1
+                    xyz2double(chain.residues[r].atoms[8],c3); //CE1
+                    calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CZ
+                    chain.residues[r].atoms[10].xyz[0]=1000.*c4[0]; //CZ
+                    chain.residues[r].atoms[10].xyz[1]=1000.*c4[1]; //CZ
+                    chain.residues[r].atoms[10].xyz[2]=1000.*c4[2]; //CZ
+
+                    // CD1_CE1_CZ_OH_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[6],c1); //CD1
+                    xyz2double(chain.residues[r].atoms[8],c2); //CE1
+                    xyz2double(chain.residues[r].atoms[10],c3); //CZ
+                    calculateCoordinates(c4,c1,c2,c3,1.39,119.78,180); //OH
+                    chain.residues[r].atoms[11].xyz[0]=1000.*c4[0]; //OH
+                    chain.residues[r].atoms[11].xyz[1]=1000.*c4[1]; //OH
+                    chain.residues[r].atoms[11].xyz[2]=1000.*c4[2]; //OH
+                    continue;
+                }
+                else if (resn=="TRP")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.43,126.66,tor+180); //CD2
+                    chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //CD2
+                    chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //CD2
+                    chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
+
+                    // CB_CG_CD1_NE1_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[5],c2); //CG
+                    xyz2double(chain.residues[r].atoms[6],c3); //CD1
+                    calculateCoordinates(c4,c1,c2,c3,1.38,108.5,180); //NE1
+                    chain.residues[r].atoms[10].xyz[0]=1000.*c4[0]; //NE1
+                    chain.residues[r].atoms[10].xyz[1]=1000.*c4[1]; //NE1
+                    chain.residues[r].atoms[10].xyz[2]=1000.*c4[2]; //NE1
+
+                    // CB_CG_CD2_CE2_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[7],c3); //CD2
+                    calculateCoordinates(c4,c1,c2,c3,1.40,108.5,180); //CE2
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //CE2
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //CE2
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //CE2
+
+                    // CB_CG_CD2_CE3_diangle = 0.0
+                    calculateCoordinates(c4,c1,c2,c3,1.40,133.83,0); //CE3
+                    chain.residues[r].atoms[9].xyz[0]=1000.*c4[0]; //CE3
+                    chain.residues[r].atoms[9].xyz[1]=1000.*c4[1]; //CE3
+                    chain.residues[r].atoms[9].xyz[2]=1000.*c4[2]; //CE3
+
+                    // CG_CD2_CE2_CZ2_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[5],c1); //CG
+                    xyz2double(chain.residues[r].atoms[7],c2); //CD2
+                    xyz2double(chain.residues[r].atoms[8],c3); //CE2
+                    calculateCoordinates(c4,c1,c2,c3,1.40,120.0,180); //CZ2
+                    chain.residues[r].atoms[12].xyz[0]=1000.*c4[0]; //CZ2
+                    chain.residues[r].atoms[12].xyz[1]=1000.*c4[1]; //CZ2
+                    chain.residues[r].atoms[12].xyz[2]=1000.*c4[2]; //CZ2
+
+                    // CG_CD2_CE3_CZ3_diangle = 180.0
+                    xyz2double(chain.residues[r].atoms[9],c3); //CE3
+                    calculateCoordinates(c4,c1,c2,c3,1.40,120.0,180); //CZ3
+                    chain.residues[r].atoms[13].xyz[0]=1000.*c4[0]; //CZ3
+                    chain.residues[r].atoms[13].xyz[1]=1000.*c4[1]; //CZ3
+                    chain.residues[r].atoms[13].xyz[2]=1000.*c4[2]; //CZ3
+
+                    // CD2_CE2_CZ2_CH2_diangle = 0.0
+                    xyz2double(chain.residues[r].atoms[7],c1); //CD2
+                    xyz2double(chain.residues[r].atoms[8],c2); //CE2
+                    xyz2double(chain.residues[r].atoms[12],c3); //CZ2
+                    calculateCoordinates(c4,c1,c2,c3,1.40,120.0,0); //CH2
+                    chain.residues[r].atoms[11].xyz[0]=1000.*c4[0]; //CH2
+                    chain.residues[r].atoms[11].xyz[1]=1000.*c4[1]; //CH2
+                    chain.residues[r].atoms[11].xyz[2]=1000.*c4[2]; //CH2
+                    continue;
+                }
+                else if (resn=="ILE" || resn=="PRO") continue; // 2+4+9=15
+
+                /* chi-3: CB-CG-CD-XE: ARG LYS GLN GLU MET */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                xyz2double(chain.residues[r].atoms[3],c1); //CB
+                xyz2double(chain.residues[r].atoms[5],c2); //CG
+                xyz2double(chain.residues[r].atoms[6],c3); //CD
+                if (resn=="ARG"||resn=="LYS")
+                    calculateCoordinates(c4,c1,c2,c3,1.46,111.68,tor);
+                else if (resn=="GLU")
+                    calculateCoordinates(c4,c1,c2,c3,1.25,119.02,tor);
+                else if (resn=="GLN")
+                    calculateCoordinates(c4,c1,c2,c3,1.24,120.86,tor);
+                else if (resn=="MET")
+                    calculateCoordinates(c4,c1,c2,c3,1.79,100.61,tor);
+                
+                if (resn=="GLN")
+                {
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //OE1
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //OE1
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //OE1
+                    calculateCoordinates(c4,c1,c2,c3,1.33,116.50,tor+180);
+                }
+                chain.residues[r].atoms[7].xyz[0]=1000.*c4[0]; //XE
+                chain.residues[r].atoms[7].xyz[1]=1000.*c4[1]; //XE
+                chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //XE
+                if (resn=="GLU")
+                {
+                    calculateCoordinates(c4,c1,c2,c3,1.25,119.02,tor+180);
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //OE2
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //OE2
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //OE2
+                    continue;
+                }
+
+
+                if (resn=="GLN")
+                {
+                    xyz2double(chain.residues[r].atoms[3],c2);
+                    xyz2double(chain.residues[r].atoms[5],c3);
+                    xyz2double(chain.residues[r].atoms[6],c4);
+                    cout<<"r="<<r+1<<" resn="<<resn<<" angle="
+                        <<rad2deg(Points2Angle(c2, c3,c4))<<' '
+                        <<chain.residues[r].atoms[3].name<<"="
+                        <<c2[0]<<','<<c2[1]<<','<<c2[2]<<' '
+                        <<chain.residues[r].atoms[5].name<<"="
+                        <<c3[0]<<','<<c4[1]<<','<<c3[2]<<' '
+                        <<chain.residues[r].atoms[6].name<<"="
+                        <<c4[0]<<','<<c4[1]<<','<<c4[2]<<endl;
+                }
+
+
+                if (resn=="GLN" || resn=="MET") continue; // 2+4+9+3=18
+                
+                /* chi-4: CG-CD-XE-XZ: ARG LYS */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                xyz2double(chain.residues[r].atoms[5],c1); //CG
+                xyz2double(chain.residues[r].atoms[6],c2); //CD
+                xyz2double(chain.residues[r].atoms[7],c3); //XE
+                calculateCoordinates(c4,c1,c2,c3,1.33,124.79,tor);
+                if (resn=="LYS")
+                {
+                    chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //NZ
+                    chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //NZ
+                    chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //NZ
+                    continue; // 2+4+9+3+1=19
+                }
+
+                chain.residues[r].atoms[10].xyz[0]=1000.*c4[0]; //CZ
+                chain.residues[r].atoms[10].xyz[1]=1000.*c4[1]; //CZ
+                chain.residues[r].atoms[10].xyz[2]=1000.*c4[2]; //CZ
+                /* chi-5: CD-NE-CZ-NH1: ARG */
+                if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                else                     fp.read((char *)&tor8,sizeof(int8_t));
+                tor=tor8*180./INT8_MAX;
+                xyz2double(chain.residues[r].atoms[6],c1); //CG
+                xyz2double(chain.residues[r].atoms[7],c2); //NE
+                xyz2double(chain.residues[r].atoms[10],c3); //CZ
+                calculateCoordinates(c4,c1,c2,c3,1.33,120.64,tor);
+                chain.residues[r].atoms[8].xyz[0]=1000.*c4[0]; //NH1
+                chain.residues[r].atoms[8].xyz[1]=1000.*c4[1]; //NH1
+                chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //NH1
+                calculateCoordinates(c4,c1,c2,c3,1.33,120.64,tor+180);
+                chain.residues[r].atoms[9].xyz[0]=1000.*c4[0]; //NH2
+                chain.residues[r].atoms[9].xyz[1]=1000.*c4[1]; //NH2
+                chain.residues[r].atoms[9].xyz[2]=1000.*c4[2]; //NH2
+            }
+            resn.clear();
+            DeleteArray(&allCA_arr,L);
+            DeleteArray(&allNCAC_arr,L*5+1);
+            DeleteArray(&target_stru,3);
+            DeleteArray(&refrence_stru,3);
+        }
+        else
+        {
+            if (use_stdin)
+            {
+                cin.read((char *)&prev_x,sizeof(int32_t));
+                cin.read((char *)&prev_y,sizeof(int32_t));
+                cin.read((char *)&prev_z,sizeof(int32_t));
+            }
+            else if (use_pstream)
+            {
+                fp_gz.read((char *)&prev_x,sizeof(int32_t));
+                fp_gz.read((char *)&prev_y,sizeof(int32_t));
+                fp_gz.read((char *)&prev_z,sizeof(int32_t));
+            }
+            else
+            {
+                fp.read((char *)&prev_x,sizeof(int32_t));
+                fp.read((char *)&prev_y,sizeof(int32_t));
+                fp.read((char *)&prev_z,sizeof(int32_t));
+            }
+            for (r=0;r<L;r++)
+            {
+                residue.resi=resi_vec[r];
+                residue.icode=icode_vec[r];
+                residue.resn=aa1to3(sequence[r]);
+                for (a=0;a<ordMapR[residue.resn].size()+(r+1==L);a++)
+                {
+                    if (use_stdin)
+                    {
+                        cin.read((char *)&dx16,sizeof(int16_t));
+                        cin.read((char *)&dy16,sizeof(int16_t));
+                        cin.read((char *)&dz16,sizeof(int16_t));
+                    }
+                    else if (use_pstream)
+                    {
+                        fp_gz.read((char *)&dx16,sizeof(int16_t));
+                        fp_gz.read((char *)&dy16,sizeof(int16_t));
+                        fp_gz.read((char *)&dz16,sizeof(int16_t));
+                    }
+                    else
+                    {
+                        fp.read((char *)&dx16,sizeof(int16_t));
+                        fp.read((char *)&dy16,sizeof(int16_t));
+                        fp.read((char *)&dz16,sizeof(int16_t));
+                    }
+                    prev_x+=dx16;
+                    prev_y+=dy16;
+                    prev_z+=dz16;
+                    atom.xyz[0]=prev_x;
+                    atom.xyz[1]=prev_y;
+                    atom.xyz[2]=prev_z;
+                    atom.name=" OXT";
+                    if (a<ordMapR[residue.resn].size()) atom.name=ordMapR[residue.resn][a];
+                    residue.atoms.push_back(atom);
+                }
+                prev_x=residue.atoms[2].xyz[0];
+                prev_y=residue.atoms[2].xyz[1];
+                prev_z=residue.atoms[2].xyz[2];
+                chain.residues.push_back(residue);
+                residue.atoms.clear();
+            }
         }
         if (bfactor_mode==0)
         {
@@ -1304,7 +2289,7 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                     chain.residues[r].atoms[a].bfactor=bfactor;
         }
-        else if (bfactor_mode==1)
+        else if (bfactor_mode==1 || lossy)
         {
             for (r=0;r<chain.residues.size();r++)
             {
@@ -1313,6 +2298,21 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
                 else                  fp.read((char *)&bfactor,sizeof(int16_t));
                 for (a=0;a<chain.residues[r].atoms.size();a++)
                     chain.residues[r].atoms[a].bfactor=bfactor;
+            }
+            if (bfactor_mode==2) // lossy
+            {
+                for (r=0;r<chain.residues.size();r++)
+                {
+                    bfactor=chain.residues[r].atoms[1].bfactor; // CA
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                    {
+                        if (a==1) continue;
+                        if (use_stdin)        cin.read((char *)&db8,sizeof(int8_t));
+                        else if (use_pstream) fp_gz.read((char *)&db8,sizeof(int8_t));
+                        else                  fp.read((char *)&db8,sizeof(int8_t));
+                        chain.residues[r].atoms[a].bfactor+=db8*10;
+                    }
+                }
             }
         }
         else if (bfactor_mode==2)
@@ -1340,7 +2340,7 @@ ModelUnit read_pdc_structure(const char *filename,string &header,
     residue.atoms.clear();
     chain.residues.clear();
     vector<string>().swap(line_vec);
-    return pep;
+    return lossy;
 }
 
 string write_cif_structure(ModelUnit &pep,string &header)

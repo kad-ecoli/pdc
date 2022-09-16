@@ -41,7 +41,8 @@ int main(int argc,char **argv)
     if (outfmt==0)
     {
         if      (EndsWith(outfile,".cif") || EndsWith(outfile,".cif.gz")) outfmt=2;
-        else if (EndsWith(outfile,".pdb") || EndsWith(outfile,".pdb.gz")) outfmt=1;
+        else if (EndsWith(outfile,".pdb") || EndsWith(outfile,".pdb.gz") ||
+                 EndsWith(outfile,".ent") || EndsWith(outfile,".ent.gz")) outfmt=1;
         else 
         {
             cerr<<"WARNING! output PDB because format cannot be determined by output filename.\n"
@@ -53,7 +54,8 @@ int main(int argc,char **argv)
     map<string, vector<string> > ordMapR;
     initialize_reverse_atom_order_map(ordMapR);
     string header;
-    ModelUnit pdb_entry=read_pdc_structure(infile.c_str(),header,ordMapR);
+    ModelUnit pdb_entry;
+    int lossy=read_pdc_structure(infile.c_str(),pdb_entry,header,ordMapR);
     if (outfmt==2) write_cif_structure(outfile,pdb_entry,header);
     else           write_pdb_structure(outfile,pdb_entry,header);
 

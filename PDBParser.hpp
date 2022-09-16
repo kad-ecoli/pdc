@@ -1004,7 +1004,8 @@ string write_pdc_structure(ModelUnit &pep,string &header)
     int resi_prev=0;
     char icode_prev=' ';
     int L;
-    int32_t x,y,z,bfactor;
+    int32_t x,y,z;
+    int16_t bfactor;
     int32_t prev_x,prev_y,prev_z;
     int16_t dx16,dy16,dz16;
     for (c=0;c<pep.chains.size();c++)
@@ -1144,7 +1145,8 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
     int resi_prev=0;
     char icode_prev=' ';
     int L;
-    int32_t x,y,z,bfactor;
+    int32_t x,y,z;
+    int16_t bfactor,prev_b;
     int32_t prev_x,prev_y,prev_z;
     int16_t dx16,dy16,dz16,db16;
     double tor;
@@ -1299,23 +1301,27 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
         }
-        if (bfactor_mode==0)
+        prev_b=pep.chains[c].residues[0].atoms[0].bfactor;
+        buf.write((char *)&prev_b,sizeof(int16_t));
+        if (bfactor_mode>=1)
         {
-            bfactor=pep.chains[c].residues[0].atoms[0].bfactor;
-            buf.write((char *)&bfactor,sizeof(int16_t));
-        }
-        else if (bfactor_mode>=1)
-        {
-            for (r=0;r<pep.chains[c].residues.size();r++)
+            vector<int16_t> bfactor_vec(L,prev_b);
+            for (r=0;r<L;r++)
             {
+                if (r>0) prev_b=bfactor_vec[r-1];
                 bfactor=pep.chains[c].residues[r].atoms[1].bfactor; // CA
-                buf.write((char *)&bfactor,sizeof(int16_t));
+                db16=0.1*(bfactor-prev_b);
+                if (db16>=INT8_MAX) db8=INT8_MAX;
+                else if (db16<=INT8_MIN) db8=INT8_MIN;
+                else db8=db16;
+                buf.write((char *)&db8,sizeof(int8_t));
+                bfactor_vec[r]=prev_b+10*db8;
             }
             if (bfactor_mode==2)
             {
-                for (r=0;r<pep.chains[c].residues.size();r++)
+                for (r=0;r<L;r++)
                 {
-                    bfactor=pep.chains[c].residues[r].atoms[1].bfactor; // CA
+                    bfactor=bfactor_vec[r];
                     for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
                     {
                         if (a==1) continue;
@@ -1327,6 +1333,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
                     }
                 }
             }
+            bfactor_vec.clear();
         }
     }
     buf<<flush;
@@ -2155,24 +2162,6 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                     chain.residues[r].atoms[8].xyz[2]=1000.*c4[2]; //OE2
                     continue;
                 }
-
-
-                if (resn=="GLN")
-                {
-                    xyz2double(chain.residues[r].atoms[3],c2);
-                    xyz2double(chain.residues[r].atoms[5],c3);
-                    xyz2double(chain.residues[r].atoms[6],c4);
-                    cout<<"r="<<r+1<<" resn="<<resn<<" angle="
-                        <<rad2deg(Points2Angle(c2, c3,c4))<<' '
-                        <<chain.residues[r].atoms[3].name<<"="
-                        <<c2[0]<<','<<c2[1]<<','<<c2[2]<<' '
-                        <<chain.residues[r].atoms[5].name<<"="
-                        <<c3[0]<<','<<c4[1]<<','<<c3[2]<<' '
-                        <<chain.residues[r].atoms[6].name<<"="
-                        <<c4[0]<<','<<c4[1]<<','<<c4[2]<<endl;
-                }
-
-
                 if (resn=="GLN" || resn=="MET") continue; // 2+4+9+3=18
                 
                 /* chi-4: CG-CD-XE-XZ: ARG LYS */
@@ -2217,6 +2206,41 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
             DeleteArray(&allNCAC_arr,L*5+1);
             DeleteArray(&target_stru,3);
             DeleteArray(&refrence_stru,3);
+            if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
+            else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
+            else                  fp.read((char *)&bfactor,sizeof(int16_t));
+            if (bfactor_mode==0)
+            {
+                for (r=0;r<L;r++)
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                        chain.residues[r].atoms[a].bfactor=bfactor;
+            }
+            else
+            {
+                for (r=0;r<L;r++)
+                {
+                    if (use_stdin)        cin.read((char *)&db8,sizeof(int8_t));
+                    else if (use_pstream) fp_gz.read((char *)&db8,sizeof(int8_t));
+                    else                  fp.read((char *)&db8,sizeof(int8_t));
+                    bfactor+=10*db8;
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                        chain.residues[r].atoms[a].bfactor=bfactor;
+                }
+                if (bfactor_mode==2)
+                {
+                    bfactor=chain.residues[r].atoms[1].bfactor;
+                    for (r=0;r<chain.residues.size();r++)
+                    {
+                        for (a=0;a<chain.residues[r].atoms.size();a++)
+                        {
+                            if (use_stdin)        cin.read((char *)&db8,sizeof(int8_t));
+                            else if (use_pstream) fp_gz.read((char *)&db8,sizeof(int8_t));
+                            else                  fp.read((char *)&db8,sizeof(int8_t));
+                            chain.residues[r].atoms[a].bfactor=bfactor+10*db8;
+                        }
+                    }
+                }
+            }
         }
         else
         {
@@ -2279,52 +2303,37 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                 chain.residues.push_back(residue);
                 residue.atoms.clear();
             }
-        }
-        if (bfactor_mode==0)
-        {
-            if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
-            else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
-            else                  fp.read((char *)&bfactor,sizeof(int16_t));
-            for (r=0;r<chain.residues.size();r++)
-                for (a=0;a<chain.residues[r].atoms.size();a++)
-                    chain.residues[r].atoms[a].bfactor=bfactor;
-        }
-        else if (bfactor_mode==1 || lossy)
-        {
-            for (r=0;r<chain.residues.size();r++)
+            if (bfactor_mode==0)
             {
                 if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
                 else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
                 else                  fp.read((char *)&bfactor,sizeof(int16_t));
-                for (a=0;a<chain.residues[r].atoms.size();a++)
-                    chain.residues[r].atoms[a].bfactor=bfactor;
+                for (r=0;r<chain.residues.size();r++)
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                        chain.residues[r].atoms[a].bfactor=bfactor;
             }
-            if (bfactor_mode==2) // lossy
+            else if (bfactor_mode==1)
             {
                 for (r=0;r<chain.residues.size();r++)
-                {
-                    bfactor=chain.residues[r].atoms[1].bfactor; // CA
-                    for (a=0;a<chain.residues[r].atoms.size();a++)
-                    {
-                        if (a==1) continue;
-                        if (use_stdin)        cin.read((char *)&db8,sizeof(int8_t));
-                        else if (use_pstream) fp_gz.read((char *)&db8,sizeof(int8_t));
-                        else                  fp.read((char *)&db8,sizeof(int8_t));
-                        chain.residues[r].atoms[a].bfactor+=db8*10;
-                    }
-                }
-            }
-        }
-        else if (bfactor_mode==2)
-        {
-            for (r=0;r<chain.residues.size();r++)
-            {
-                for (a=0;a<chain.residues[r].atoms.size();a++)
                 {
                     if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
                     else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
                     else                  fp.read((char *)&bfactor,sizeof(int16_t));
-                    chain.residues[r].atoms[a].bfactor=bfactor;
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                        chain.residues[r].atoms[a].bfactor=bfactor;
+                }
+            }
+            else if (bfactor_mode==2)
+            {
+                for (r=0;r<chain.residues.size();r++)
+                {
+                    for (a=0;a<chain.residues[r].atoms.size();a++)
+                    {
+                        if (use_stdin)        cin.read((char *)&bfactor,sizeof(int16_t));
+                        else if (use_pstream) fp_gz.read((char *)&bfactor,sizeof(int16_t));
+                        else                  fp.read((char *)&bfactor,sizeof(int16_t));
+                        chain.residues[r].atoms[a].bfactor=bfactor;
+                    }
                 }
             }
         }

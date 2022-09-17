@@ -38,3 +38,15 @@ PDC is specifically designed for protein models in the AlphaFold database. It is
 3. Only MODEL 1 of in a multi-model structure will be converted.
 4. For atoms with alternative locations, only atoms with alternative locations ' ' or 'A' will be considered.
 5. Hydrogens are ignored.
+
+## Benchmark ##
+PDC, MMTF, PIC and BinaryCIF are applied to the [E coli](https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/UP000000625_83333_ECOLI_v3.tar) proteome of AlphaFold DB. The file sizes after gzip compression are shown below.
+| File format | File size (MB) | Lossless/Lossy |
+| :--:        | :--:           | :--:           |
+| CIF         | 273            | Lossless       |
+| PDB         | 196            | Lossless       |
+| PIC         | 163            | Lossy          |
+| BinaryCIF   | 143            | Lossless       |
+| MMTF        | 76             | Lossless       |
+| PDC         | 67             | Lossless       |
+| PDC         | 30             | Lossy          |

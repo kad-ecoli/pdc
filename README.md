@@ -1,7 +1,7 @@
 # PDC: Protein Data Compressor #
 
 ## Introduction ##
-With recent development of high accuracy protein structure predictors, more and more predicted protein structure models have been deposited to public databases such as the [AlphaFold DB](https://alphafold.ebi.ac.uk/). This leads to hugh hard disk comsumptions. For example, the full AlphaFold DB release in year 2022 has 23 TB of data, which is only expected to increase significantly in the near future. To address this issue, the PDC package aims to convert full atomic PDB and mmCIF format protein structure models to and from the highly compressed .pdc format.
+Recent development of high accuracy protein structure predictors result in more and more predicted protein structure models being deposited to public databases such as the [AlphaFold DB](https://alphafold.ebi.ac.uk/). These large datasets for protein structures leads to hugh hard disk comsumptions. For example, the full AlphaFold DB release in year 2022 has 23 TB of data, which is expected to continuously increase. To address the data storage issue, the PDC package aims to convert full atomic PDB and mmCIF format protein structure models to and from the highly compressed .pdc format, which is specifically designed for AlphaFold predicted protein structures.
 
 ## Installation ##
 ```bash
@@ -38,3 +38,15 @@ PDC is specifically designed for protein models in the AlphaFold database. It is
 3. Only MODEL 1 of in a multi-model structure will be converted.
 4. For atoms with alternative locations, only atoms with alternative locations ' ' or 'A' will be considered.
 5. Hydrogens are ignored.
+
+## Benchmark ##
+PDC, MMTF, PIC and BinaryCIF are applied to the [E coli](https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/UP000000625_83333_ECOLI_v3.tar) proteome of AlphaFold DB. The file sizes after gzip compression are shown below.
+| File format | File size (MB) | Lossless/Lossy |
+| :--:        | :--:           | :--:           |
+| CIF         | 273            | Lossless       |
+| PDB         | 196            | Lossless       |
+| PIC         | 163            | Lossy          |
+| BinaryCIF   | 143            | Lossless       |
+| MMTF        | 76             | Lossless       |
+| PDC         | 67             | Lossless       |
+| PDC         | 30             | Lossy          |

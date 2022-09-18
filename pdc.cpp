@@ -7,10 +7,12 @@ const char* docstring=""
 "               0: CA atoms\n"
 "               1: N, CA, C atoms\n"
 "               2: (default) all atoms\n"
-"    -l={0,1}   lossless/lossy compression\n"
+"    -l={0,1,2,3,4} lossless/lossy compression\n"
 "               0: (default) lossless compression\n"
 "               1: lossless compression of CA; lossy compression of other atoms\n"
 "               2: lossy compression of all atoms\n"
+"               3: lossless compression, CA only\n"
+"               4: lossy compression, CA only\n"
 "    -f={0,1,2} input format\n"
 "               0: (default) determined by filename\n"
 "               1: PDB\n"
@@ -73,9 +75,6 @@ int main(int argc,char **argv)
     map<string, map<string,int> >ordMap;
     initialize_atom_order_map(ordMap);
     standardize_pdb_order(pdb_entry, ordMap);
-    //write_pdb_structure(outfile.c_str(),pdb_entry,header);
-    if (lossy) for (int c=0;c<pdb_entry.chains.size();c++)
-        if (pdb_entry.chains[c].residues.size()<3) lossy=0;
     if (lossy==0) write_pdc_structure(outfile,pdb_entry,header);
     else write_pdc_lossy_structure(outfile,pdb_entry,header,lossy);
 

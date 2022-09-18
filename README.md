@@ -16,7 +16,15 @@ pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz
 ```
 Lossy compression:
 ```bash
-pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz -l=1
+pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz -l=2
+```
+Lossless compression (CA atoms only)
+```bash
+pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz -l=3
+```
+Lossy compression (CA atoms only)
+```bash
+pdc AF-P11532-F2-model_v3.pdb.gz AF-P11532-F2-model_v3.pdc.gz -l=4
 ```
 Uncompress:
 ```bash
@@ -49,4 +57,4 @@ PDC, MMTF, PIC and BinaryCIF are applied to the [E coli](https://ftp.ebi.ac.uk/p
 | BinaryCIF   | 143            | Lossless       |
 | MMTF        | 76             | Lossless       |
 | PDC         | 67             | Lossless       |
-| PDC         | 30             | Lossy          |
+| PDC         | 26             | Lossy          |

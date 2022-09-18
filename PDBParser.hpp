@@ -1133,7 +1133,7 @@ void xyz2double(AtomUnit &atom, double *c1)
 }
 
 /* lossy compression */
-string write_pdc_lossy_structure(ModelUnit &pep,string &header)
+string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
 {
     string txt=header;
     if (pep.chains.size()==0) return txt;
@@ -1149,9 +1149,9 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
     int16_t bfactor,prev_b;
     int32_t prev_x,prev_y,prev_z;
     int16_t dx16,dy16,dz16,db16;
+    int8_t dx8,dy8,dz8,db8;
     double tor;
     int8_t tor8;
-    int8_t db8;
     double c1[3],c2[3],c3[3],c4[3];
     string resn;
     for (c=0;c<pep.chains.size();c++)
@@ -1160,7 +1160,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
         bfactor_mode=check_bfactor_mode(pep.chains[c]);
         L=pep.chains[c].residues.size();
         buf <<"@a\n>"<<pep.chains[c].chainID<<'\t'
-            <<moltype<<'\t'<<bfactor_mode<<'\t'<<L<<"\t1\n"
+            <<moltype<<'\t'<<bfactor_mode<<'\t'<<L<<'\t'<<lossy<<'\n'
             <<pep.chains[c].sequence<<'\n';
         for (r=0;r<L;r++)
         {
@@ -1197,12 +1197,45 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
         buf<<'\n';
         for (r=0;r<L;r++)
         {
-            prev_x=pep.chains[c].residues[r].atoms[1].xyz[0]; // CA
-            prev_y=pep.chains[c].residues[r].atoms[1].xyz[1];
-            prev_z=pep.chains[c].residues[r].atoms[1].xyz[2];
-            buf.write((char *)&prev_x,sizeof(int32_t));
-            buf.write((char *)&prev_y,sizeof(int32_t));
-            buf.write((char *)&prev_z,sizeof(int32_t));
+            x=pep.chains[c].residues[r].atoms[1].xyz[0]; // CA
+            y=pep.chains[c].residues[r].atoms[1].xyz[1];
+            z=pep.chains[c].residues[r].atoms[1].xyz[2];
+            if (r==0)
+            {
+                buf.write((char *)&x,sizeof(int32_t));
+                buf.write((char *)&y,sizeof(int32_t));
+                buf.write((char *)&z,sizeof(int32_t));
+                prev_x=x;
+                prev_y=y;
+                prev_z=z;
+            }
+            else
+            {
+                if (lossy<=1)
+                {
+                    dx16=(x-prev_x);
+                    dy16=(y-prev_y);
+                    dz16=(z-prev_z);
+                    buf.write((char *)&dx16,sizeof(int16_t));
+                    buf.write((char *)&dy16,sizeof(int16_t));
+                    buf.write((char *)&dz16,sizeof(int16_t));
+                    prev_x+=dx16;
+                    prev_y+=dy16;
+                    prev_z+=dz16;
+                }
+                else
+                {
+                    dx8=(x-prev_x)/100;
+                    dy8=(y-prev_y)/100;
+                    dz8=(z-prev_z)/100;
+                    buf.write((char *)&dx8,sizeof(int8_t));
+                    buf.write((char *)&dy8,sizeof(int8_t));
+                    buf.write((char *)&dz8,sizeof(int8_t));
+                    prev_x+=dx8*100;
+                    prev_y+=dy8*100;
+                    prev_z+=dz8*100;
+                }
+            }
         }
         /* phi, psi, omega */
         for (r=0;r<L;r++)
@@ -1219,14 +1252,17 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
 
             if (r+1<L)
             {
-                /* CA-C-N[+1]-CA[+1] */
-                xyz2double(pep.chains[c].residues[r].atoms[1],c1); //CA
-                xyz2double(pep.chains[c].residues[r].atoms[2],c2); //C
-                xyz2double(pep.chains[c].residues[r+1].atoms[0],c3); //N[+1]
-                xyz2double(pep.chains[c].residues[r+1].atoms[1],c4); //CA[+1]
-                tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
-                tor8=tor*INT8_MAX/180.+0.5;
-                buf.write((char *)&tor8,sizeof(int8_t));
+                /* omega: CA-C-N[+1]-CA[+1] */
+                if (lossy<=1)
+                {
+                    xyz2double(pep.chains[c].residues[r].atoms[1],c1); //CA
+                    xyz2double(pep.chains[c].residues[r].atoms[2],c2); //C
+                    xyz2double(pep.chains[c].residues[r+1].atoms[0],c3); //N[+1]
+                    xyz2double(pep.chains[c].residues[r+1].atoms[1],c4); //CA[+1]
+                    tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
+                    tor8=tor*INT8_MAX/180.+0.5;
+                    buf.write((char *)&tor8,sizeof(int8_t));
+                }
 
                 /* C-N[+1]-CA[+1]-C[+1] */
                 xyz2double(pep.chains[c].residues[r].atoms[2],c1); //C
@@ -1343,16 +1379,16 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header)
 }
 
 /* filename - full output filename, write to stdout if filename=="-" */
-void write_pdc_lossy_structure(const string &filename,ModelUnit &pep,string &header)
+void write_pdc_lossy_structure(const string &filename,ModelUnit &pep,string &header,const int lossy)
 {
     if (filename=="-")
-        cout<<write_pdc_lossy_structure(pep,header)<<flush;
+        cout<<write_pdc_lossy_structure(pep,header,lossy)<<flush;
     else
     {
         string filename_str=filename;
         if (EndsWith(filename,".gz")) filename_str=filename.substr(0,filename.size()-3);
         ofstream fp(filename_str.c_str());
-        fp<<write_pdc_lossy_structure(pep,header)<<flush;
+        fp<<write_pdc_lossy_structure(pep,header,lossy)<<flush;
         fp.close();
         if (EndsWith(filename,".gz"))
             int r=system(((string)("gzip -f "+filename_str)).c_str());
@@ -1412,7 +1448,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
     int32_t prev_x,prev_y,prev_z;
     int32_t x,y,z,bfactor;
     int16_t dx16,dy16,dz16;
-    int8_t db8;
+    int8_t dx8,dy8,dz8,db8;
     int atomNum;
     int lossy=0;
     double tor,ang,len;
@@ -1506,32 +1542,86 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                         atom.name=ordMapR[residue.resn][a];
                     residue.atoms.push_back(atom);
                 }
-                if (use_stdin)
+                if (r==0)
                 {
-                    cin.read((char *)&prev_x,sizeof(int32_t));
-                    cin.read((char *)&prev_y,sizeof(int32_t));
-                    cin.read((char *)&prev_z,sizeof(int32_t));
-                }
-                else if (use_pstream)
-                {
-                    fp_gz.read((char *)&prev_x,sizeof(int32_t));
-                    fp_gz.read((char *)&prev_y,sizeof(int32_t));
-                    fp_gz.read((char *)&prev_z,sizeof(int32_t));
+                    if (use_stdin)
+                    {
+                        cin.read((char *)&x,sizeof(int32_t));
+                        cin.read((char *)&y,sizeof(int32_t));
+                        cin.read((char *)&z,sizeof(int32_t));
+                    }
+                    else if (use_pstream)
+                    {
+                        fp_gz.read((char *)&x,sizeof(int32_t));
+                        fp_gz.read((char *)&y,sizeof(int32_t));
+                        fp_gz.read((char *)&z,sizeof(int32_t));
+                    }
+                    else
+                    {
+                        fp.read((char *)&x,sizeof(int32_t));
+                        fp.read((char *)&y,sizeof(int32_t));
+                        fp.read((char *)&z,sizeof(int32_t));
+                    }
                 }
                 else
                 {
-                    fp.read((char *)&prev_x,sizeof(int32_t));
-                    fp.read((char *)&prev_y,sizeof(int32_t));
-                    fp.read((char *)&prev_z,sizeof(int32_t));
+                    if (lossy==1)
+                    {
+                        if (use_stdin)
+                        {
+                            cin.read((char *)&dx16,sizeof(int16_t));
+                            cin.read((char *)&dy16,sizeof(int16_t));
+                            cin.read((char *)&dz16,sizeof(int16_t));
+                        }
+                        else if (use_pstream)
+                        {
+                            fp_gz.read((char *)&dx16,sizeof(int16_t));
+                            fp_gz.read((char *)&dy16,sizeof(int16_t));
+                            fp_gz.read((char *)&dz16,sizeof(int16_t));
+                        }
+                        else
+                        {
+                            fp.read((char *)&dx16,sizeof(int16_t));
+                            fp.read((char *)&dy16,sizeof(int16_t));
+                            fp.read((char *)&dz16,sizeof(int16_t));
+                        }
+                        x+=dx16;
+                        y+=dy16;
+                        z+=dz16;
+                    }
+                    else
+                    {
+                        if (use_stdin)
+                        {
+                            cin.read((char *)&dx8,sizeof(int8_t));
+                            cin.read((char *)&dy8,sizeof(int8_t));
+                            cin.read((char *)&dz8,sizeof(int8_t));
+                        }
+                        else if (use_pstream)
+                        {
+                            fp_gz.read((char *)&dx8,sizeof(int8_t));
+                            fp_gz.read((char *)&dy8,sizeof(int8_t));
+                            fp_gz.read((char *)&dz8,sizeof(int8_t));
+                        }
+                        else
+                        {
+                            fp.read((char *)&dx8,sizeof(int8_t));
+                            fp.read((char *)&dy8,sizeof(int8_t));
+                            fp.read((char *)&dz8,sizeof(int8_t));
+                        }
+                        x+=dx8*100;
+                        y+=dy8*100;
+                        z+=dz8*100;
+                    }
                 }
-                residue.atoms[1].xyz[0]=prev_x;
-                residue.atoms[1].xyz[1]=prev_y;
-                residue.atoms[1].xyz[2]=prev_z;
+                residue.atoms[1].xyz[0]=x;
+                residue.atoms[1].xyz[1]=y;
+                residue.atoms[1].xyz[2]=z;
                 chain.residues.push_back(residue);
                 residue.atoms.clear();
-                allCA_arr[r][0]=0.001*prev_x;
-                allCA_arr[r][1]=0.001*prev_y;
-                allCA_arr[r][2]=0.001*prev_z;
+                allCA_arr[r][0]=0.001*x;
+                allCA_arr[r][1]=0.001*y;
+                allCA_arr[r][2]=0.001*z;
             }
             allNCAC_arr[0][0]=1.46 * cos(deg2rad(110.8914));
             allNCAC_arr[0][1]=allNCAC_arr[0][2]=0;
@@ -1684,10 +1774,14 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                 if (r+1<L)
                 {
                     /* CA-C-N[+1]-CA[+1] */
-                    if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
-                    else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
-                    else                     fp.read((char *)&tor8,sizeof(int8_t));
-                    tor=tor8*180./INT8_MAX;
+                    tor=180;
+                    if (lossy==1)
+                    {
+                        if (use_stdin)          cin.read((char *)&tor8,sizeof(int8_t));
+                        else if (use_pstream) fp_gz.read((char *)&tor8,sizeof(int8_t));
+                        else                     fp.read((char *)&tor8,sizeof(int8_t));
+                        tor=tor8*180./INT8_MAX;
+                    }
                     calculateCoordinates(allNCAC_arr[(r+1)*5+1],
                         allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],
                         1.46,121.382215820277,tor);

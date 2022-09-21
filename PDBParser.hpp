@@ -1880,7 +1880,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //ND1
                     
                     // CB_CG_ND1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[7],c3); //ND1
                     calculateCoordinates(c4,c1,c2,c3,1.32,108.5,180);//CE1
@@ -1903,7 +1903,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
@@ -1935,7 +1935,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
@@ -1976,7 +1976,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_NE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.38,108.5,180); //NE1
@@ -2831,7 +2831,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //ND1
                     
                     // CB_CG_ND1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[7],c3); //ND1
                     calculateCoordinates(c4,c1,c2,c3,1.32,108.5,180);//CE1
@@ -2855,7 +2855,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
@@ -2888,7 +2888,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_CE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.39,120.0,180); //CE1
@@ -2930,7 +2930,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                     chain.residues[r].atoms[7].xyz[2]=1000.*c4[2]; //CD2
 
                     // CB_CG_CD1_NE1_diangle = 180.0
-                    xyz2double(chain.residues[r].atoms[2],c1); //CB
+                    xyz2double(chain.residues[r].atoms[3],c1); //CB
                     xyz2double(chain.residues[r].atoms[5],c2); //CG
                     xyz2double(chain.residues[r].atoms[6],c3); //CD1
                     calculateCoordinates(c4,c1,c2,c3,1.38,108.5,180); //NE1

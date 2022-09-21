@@ -947,6 +947,44 @@ void standardize_pdb_order(ModelUnit &pep, map<string, map<string,int> >&ordMap)
         standardize_pdb_order(pep.chains[c],ordMap);
 }
 
+/* place CA atom as the second atom */
+void standardize_pdb_ca(ModelUnit &pep)
+{
+    int c,r,a;
+    AtomUnit atom;
+    atom.xyz.assign(3,0);
+    atom.bfactor=0;
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            if (pep.chains[c].residues[r].atoms.size()<=1)
+                pep.chains[c].residues[r].atoms.push_back(atom);
+            else if (pep.chains[c].residues[r].atoms[1].name==" CA ") continue;
+            int found_CA=0;
+            for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+            {
+                if (pep.chains[c].residues[r].atoms[a].name!=" CA ") continue;
+                found_CA+=1;
+                pep.chains[c].residues[r].atoms[1].name=" CA ";
+                pep.chains[c].residues[r].atoms[a].name="    ";
+                pep.chains[c].residues[r].atoms[1].xyz[0]=pep.chains[c].residues[r].atoms[a].xyz[0];
+                pep.chains[c].residues[r].atoms[1].xyz[1]=pep.chains[c].residues[r].atoms[a].xyz[1];
+                pep.chains[c].residues[r].atoms[1].xyz[2]=pep.chains[c].residues[r].atoms[a].xyz[2];
+                pep.chains[c].residues[r].atoms[1].bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
+                break;
+            }
+            if (found_CA==0)
+            {
+                cerr<<"ERROR! "<<pep.chains[c].residues[r].resn<<' '
+                    <<pep.chains[c].chainID<<' '<<pep.chains[c].residues[r].resi
+                    <<" lack CA atom"<<endl;
+                exit(1);
+            }
+        }
+    }
+}
+
 char check_moltype(ChainUnit &chain)
 {
     int pro=0;

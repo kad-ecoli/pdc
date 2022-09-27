@@ -72,9 +72,17 @@ int main(int argc,char **argv)
     if (infmt==2) pdb_entry=read_cif_structure(infile.c_str(),header,atomic_detail);
     else          pdb_entry=read_pdb_structure(infile.c_str(),header,atomic_detail);
 
-    map<string, map<string,int> >ordMap;
-    initialize_atom_order_map(ordMap);
-    standardize_pdb_order(pdb_entry, ordMap);
+    if (lossy<=2)
+    {
+        map<string, map<string,int> >ordMap;
+        initialize_atom_order_map(ordMap);
+        standardize_pdb_order(pdb_entry, ordMap);
+        map<string, map<string,int> >().swap(ordMap);
+    }
+    else // CA only
+    {
+        standardize_pdb_ca(pdb_entry);
+    }
     if (lossy==0) write_pdc_structure(outfile,pdb_entry,header);
     else write_pdc_lossy_structure(outfile,pdb_entry,header,lossy);
 
@@ -83,6 +91,5 @@ int main(int argc,char **argv)
     string ().swap(outfile);
     string ().swap(header);
     deepClean(pdb_entry);
-    map<string, map<string,int> >().swap(ordMap);
     return 0;
 }

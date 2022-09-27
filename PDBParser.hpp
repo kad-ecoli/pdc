@@ -48,6 +48,33 @@ struct ModelUnit  // struct for each model in mult-model PDB
     vector<ChainUnit> chains; // list of chains
 };
 
+void deepClean(AtomUnit &atom)
+{
+    string ().swap(atom.name);
+    vector<int32_t>().swap(atom.xyz);
+}
+
+void deepClean(ResidueUnit &residue)
+{
+    int a;
+    for (a=0;a<residue.atoms.size();a++) deepClean(residue.atoms[a]);
+    residue.atoms.clear();
+    string ().swap(residue.resn);
+}
+
+void deepClean(ChainUnit &chain)
+{
+    int r;
+    for (r=0;r<chain.residues.size();r++) deepClean(chain.residues[r]);
+    chain.residues.clear();
+}
+
+void deepClean(ModelUnit &pep)
+{
+    int c;
+    for (c=0;c<pep.chains.size();c++) deepClean(pep.chains[c]);
+}
+
 int32_t XYZtoint32(string line)
 {
     while (line.size()<8) line=' '+line;
@@ -975,6 +1002,44 @@ void standardize_pdb_order(ModelUnit &pep, map<string, map<string,int> >&ordMap)
         standardize_pdb_order(pep.chains[c],ordMap);
 }
 
+/* place CA atom as the second atom */
+void standardize_pdb_ca(ModelUnit &pep)
+{
+    int c,r,a;
+    AtomUnit atom;
+    atom.xyz.assign(3,0);
+    atom.bfactor=0;
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            if (pep.chains[c].residues[r].atoms.size()<=1)
+                pep.chains[c].residues[r].atoms.push_back(atom);
+            else if (pep.chains[c].residues[r].atoms[1].name==" CA ") continue;
+            int found_CA=0;
+            for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+            {
+                if (pep.chains[c].residues[r].atoms[a].name!=" CA ") continue;
+                found_CA+=1;
+                pep.chains[c].residues[r].atoms[1].name=" CA ";
+                pep.chains[c].residues[r].atoms[a].name="    ";
+                pep.chains[c].residues[r].atoms[1].xyz[0]=pep.chains[c].residues[r].atoms[a].xyz[0];
+                pep.chains[c].residues[r].atoms[1].xyz[1]=pep.chains[c].residues[r].atoms[a].xyz[1];
+                pep.chains[c].residues[r].atoms[1].xyz[2]=pep.chains[c].residues[r].atoms[a].xyz[2];
+                pep.chains[c].residues[r].atoms[1].bfactor=pep.chains[c].residues[r].atoms[a].bfactor;
+                break;
+            }
+            if (found_CA==0)
+            {
+                cerr<<"ERROR! "<<pep.chains[c].residues[r].resn<<' '
+                    <<pep.chains[c].chainID<<' '<<pep.chains[c].residues[r].resi
+                    <<" lack CA atom"<<endl;
+                exit(1);
+            }
+        }
+    }
+}
+
 char check_moltype(ChainUnit &chain)
 {
     int pro=0;
@@ -1341,7 +1406,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
         buf <<"@a\n>"<<pep.chains[c].chainID<<'\t'
             <<moltype<<'\t'<<bfactor_mode<<'\t'<<L<<'\t'<<lossy<<'\n'
             <<pep.chains[c].sequence<<'\n';
-        if (lossy==0)
+        if (lossy<=2)
         {
             NewArray(&allCA_arr,L,3);
             NewArray(&allNCAC_arr,L*5+1,3);
@@ -1466,7 +1531,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     prev_y+=dy16;
                     prev_z+=dz16;
                 }
-                else
+                else // lossy==2 || lossy==4
                 {
                     dx8=(x-prev_x)/100;
                     dy8=(y-prev_y)/100;
@@ -1479,7 +1544,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     prev_z+=dz8*100;
                 }
             }
-            if (lossy==0)
+            if (lossy<=2)
             {
                 allCA_arr[r][0]=0.001*prev_x;
                 allCA_arr[r][1]=0.001*prev_y;
@@ -1507,7 +1572,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
             continue;
         }
         if (lossy>=3) continue;
-        else if (lossy==0)
+        else if (lossy<=2)
         {
             allNCAC_arr[0][0]=1.46 * cos(deg2rad(110.8914));
             allNCAC_arr[0][1]=allNCAC_arr[0][2]=0;
@@ -1538,13 +1603,11 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
-            if (lossy==0)
-            {
-                tor=tor8*180./INT8_MAX;
-                calculateCoordinates(allNCAC_arr[(r+1)*5],
-                    allNCAC_arr[r*5],allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],
-                    1.33,116.642992978143,tor);
-            }
+            
+            tor=tor8*180./INT8_MAX;
+            calculateCoordinates(allNCAC_arr[(r+1)*5],
+                allNCAC_arr[r*5],allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],
+                1.33,116.642992978143,tor);
 
             if (r+1<L)
             {
@@ -1561,7 +1624,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                     buf.write((char *)&tor8,sizeof(int8_t));
                     tor=tor8*180./INT8_MAX;
                 }
-                if (lossy==0) calculateCoordinates(allNCAC_arr[(r+1)*5+1],
+                calculateCoordinates(allNCAC_arr[(r+1)*5+1],
                     allNCAC_arr[r*5+1],allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],
                     1.46,121.382215820277,tor);
 
@@ -1573,16 +1636,13 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                 tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
                 tor8=tor*INT8_MAX/180.+0.5;
                 buf.write((char *)&tor8,sizeof(int8_t));
-                if (lossy==0)
-                {
-                    tor=tor8*180./INT8_MAX;
-                    calculateCoordinates(allNCAC_arr[(r+1)*5+2],
-                        allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],allNCAC_arr[(r+1)*5+1],
-                        1.52,N_CA_C_angle,tor);
-                }
+                    
+                tor=tor8*180./INT8_MAX;
+                calculateCoordinates(allNCAC_arr[(r+1)*5+2],
+                    allNCAC_arr[r*5+2],allNCAC_arr[(r+1)*5],allNCAC_arr[(r+1)*5+1],
+                    1.52,N_CA_C_angle,tor);
             }
 
-            if (lossy) continue;
             /* N-C-CA-CB */
             calculateCoordinates(allNCAC_arr[r*5+3],
                 allNCAC_arr[r*5],allNCAC_arr[r*5+2],allNCAC_arr[r*5+1],
@@ -1594,7 +1654,7 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                 1.23,CA_C_O_angle,180);
         }
         /* coordinate of N, C, O, CB, OXT */
-        if (lossy==0)
+        if (lossy<=2)
         {
             int i,j;
             v3[0]=v3[1]=v3[2]=0;
@@ -1756,11 +1816,11 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
             if (resn=="GLY" || resn=="ALA") continue; //2
 
             /* chi-1 */
-            xyz2double(pep.chains[c].residues[r].atoms[0],c1); //N
-            xyz2double(pep.chains[c].residues[r].atoms[1],c2); //CA
-            xyz2double(pep.chains[c].residues[r].atoms[3],c3); //CB
-            if (resn=="THR") xyz2double(pep.chains[c].residues[r].atoms[6],c4); //OG1
-            else             xyz2double(pep.chains[c].residues[r].atoms[5],c4); //CG
+            xyz2double(chain.residues[r].atoms[0],c1); //N
+            xyz2double(chain.residues[r].atoms[1],c2); //CA
+            xyz2double(chain.residues[r].atoms[3],c3); //CB
+            if (resn=="THR") xyz2double(chain.residues[r].atoms[6],c4); //OG1
+            else             xyz2double(chain.residues[r].atoms[5],c4); //CG
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
@@ -1829,11 +1889,11 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
 
             /* chi-2: CA-CB-CG-XD: ARG LYS MET GLU GLN ILE LEU
              * HIS TYR TRP PHE PRO ASP ASN */
-            xyz2double(pep.chains[c].residues[r].atoms[1],c1); //CA
-            xyz2double(pep.chains[c].residues[r].atoms[3],c2); //CB
-            xyz2double(pep.chains[c].residues[r].atoms[5],c3); //CG
-            if (resn=="ILE") xyz2double(pep.chains[c].residues[r].atoms[7],c4); //CD1
-            else             xyz2double(pep.chains[c].residues[r].atoms[6],c4); //XD
+            xyz2double(chain.residues[r].atoms[1],c1); //CA
+            xyz2double(chain.residues[r].atoms[3],c2); //CB
+            xyz2double(chain.residues[r].atoms[5],c3); //CG
+            if (resn=="ILE") xyz2double(chain.residues[r].atoms[7],c4); //CD1
+            else             xyz2double(chain.residues[r].atoms[6],c4); //XD
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
@@ -2056,11 +2116,11 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                 resn=="ASP") continue; // 2+4+9=15
 
             /* chi-3: CB-CG-CD-XE: ARG LYS GLN GLU MET */
-            xyz2double(pep.chains[c].residues[r].atoms[3],c1); //CB
-            xyz2double(pep.chains[c].residues[r].atoms[5],c2); //CG
-            xyz2double(pep.chains[c].residues[r].atoms[6],c3); //CD
-            if (resn=="GLN") xyz2double(pep.chains[c].residues[r].atoms[8],c4); //OE1
-            else             xyz2double(pep.chains[c].residues[r].atoms[7],c4); //XE
+            xyz2double(chain.residues[r].atoms[3],c1); //CB
+            xyz2double(chain.residues[r].atoms[5],c2); //CG
+            xyz2double(chain.residues[r].atoms[6],c3); //CD
+            if (resn=="GLN") xyz2double(chain.residues[r].atoms[8],c4); //OE1
+            else             xyz2double(chain.residues[r].atoms[7],c4); //XE
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
@@ -2097,11 +2157,11 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
             if (resn=="GLN" || resn=="GLU" || resn=="MET") continue; // 2+4+9+3=18
             
             /* chi-4: CG-CD-XE-XZ: ARG LYS */
-            xyz2double(pep.chains[c].residues[r].atoms[5],c1); //CG
-            xyz2double(pep.chains[c].residues[r].atoms[6],c2); //CD
-            xyz2double(pep.chains[c].residues[r].atoms[7],c3); //XE
-            if (resn=="LYS") xyz2double(pep.chains[c].residues[r].atoms[8],c4); //NZ
-            else            xyz2double(pep.chains[c].residues[r].atoms[10],c4); //CZ
+            xyz2double(chain.residues[r].atoms[5],c1); //CG
+            xyz2double(chain.residues[r].atoms[6],c2); //CD
+            xyz2double(chain.residues[r].atoms[7],c3); //XE
+            if (resn=="LYS") xyz2double(chain.residues[r].atoms[8],c4); //NZ
+            else             xyz2double(chain.residues[r].atoms[10],c4); //CZ
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
@@ -2125,10 +2185,10 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
             if (resn=="LYS") continue; // 2+4+9+3+1=19
             
             /* chi-5: CD-NE-CZ-NH1: ARG */
-            xyz2double(pep.chains[c].residues[r].atoms[6],c1); //CD
-            xyz2double(pep.chains[c].residues[r].atoms[7],c2); //NE
-            xyz2double(pep.chains[c].residues[r].atoms[10],c3); //CZ
-            xyz2double(pep.chains[c].residues[r].atoms[8],c4); //NH1
+            xyz2double(chain.residues[r].atoms[6],c1); //CD
+            xyz2double(chain.residues[r].atoms[7],c2); //NE
+            xyz2double(chain.residues[r].atoms[10],c3); //CZ
+            xyz2double(chain.residues[r].atoms[8],c4); //NH1
             tor=rad2deg(Points2Dihedral(c1, c2, c3, c4));
             tor8=tor*INT8_MAX/180.+0.5;
             buf.write((char *)&tor8,sizeof(int8_t));
@@ -2147,12 +2207,6 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
         }
         if (lossy==0)
         {
-            resn.clear();
-            DeleteArray(&allCA_arr,L);
-            DeleteArray(&allNCAC_arr,L*5+1);
-            DeleteArray(&target_stru,3);
-            DeleteArray(&refrence_stru,3);
-
             vector<int16_t> d16_vec;
             vector<int8_t> d8_vec;
             int16_t d16;
@@ -2186,12 +2240,17 @@ string write_pdc_lossy_structure(ModelUnit &pep,string &header,const int lossy)
                 d8=d8_vec[i];
                 buf.write((char *)&d8,sizeof(int8_t));
             }
-            for (r=0;r<L;r++)
-                for (a=0;a<chain.residues[r].atoms.size();a++)
-                    chain.residues[r].atoms[a].xyz.clear();
-            chain.residues.clear();
             d16_vec.clear();
             d8_vec.clear();
+        }
+        if (lossy<=2)
+        {
+            resn.clear();
+            DeleteArray(&allCA_arr,L);
+            DeleteArray(&allNCAC_arr,L*5+1);
+            DeleteArray(&target_stru,3);
+            DeleteArray(&refrence_stru,3);
+            deepClean(chain);
         }
         prev_b=pep.chains[c].residues[0].atoms[0].bfactor;
         buf.write((char *)&prev_b,sizeof(int16_t));
@@ -2387,6 +2446,7 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
             NewArray(&refrence_stru,3,3);
             double v1[3],v2[3],v3[3];
             double c1[3],c2[3],c3[3],c4[3];
+
             for (r=0;r<L;r++)
             {
                 residue.resi=resi_vec[r];
@@ -3148,9 +3208,9 @@ int read_pdc_structure(const char *filename,ModelUnit &pep,string &header,
                 }
                 if (bfactor_mode==2)
                 {
-                    bfactor=chain.residues[r].atoms[1].bfactor;
                     for (r=0;r<chain.residues.size();r++)
                     {
+                        bfactor=chain.residues[r].atoms[1].bfactor;
                         for (a=0;a<chain.residues[r].atoms.size();a++)
                         {
                             if (use_stdin)        cin.read((char *)&db8,sizeof(int8_t));
@@ -3569,33 +3629,6 @@ void write_cif_structure(const string &filename,ModelUnit &pep,string &header)
             int r=system(((string)("gzip -f "+filename_str)).c_str());
         filename_str.clear();
     }
-}
-
-void deepClean(AtomUnit &atom)
-{
-    string ().swap(atom.name);
-    vector<int32_t>().swap(atom.xyz);
-}
-
-void deepClean(ResidueUnit &residue)
-{
-    int a;
-    for (a=0;a<residue.atoms.size();a++) deepClean(residue.atoms[a]);
-    residue.atoms.clear();
-    string ().swap(residue.resn);
-}
-
-void deepClean(ChainUnit &chain)
-{
-    int r;
-    for (r=0;r<chain.residues.size();r++) deepClean(chain.residues[r]);
-    chain.residues.clear();
-}
-
-void deepClean(ModelUnit &pep)
-{
-    int c;
-    for (c=0;c<pep.chains.size();c++) deepClean(pep.chains[c]);
 }
 
 #endif

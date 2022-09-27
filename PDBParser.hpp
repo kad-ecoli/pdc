@@ -85,7 +85,7 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     const int atomic_detail=2,const int allowX=1)
 {
     if (StartsWith(line,"TITLE ") || StartsWith(line,"COMPND") || 
-        StartsWith(line,"SOURCE") || StartsWith(line,"DBREF")) return 2;
+        StartsWith(line,"SOURCE") || StartsWith(line,"DBREF ")) return 2;
     string record_name=line.substr(0,6);
     char altLoc=line[16];
 
@@ -157,62 +157,50 @@ ModelUnit read_pdb_structure(const char *filename,string &header,
     const int atomic_detail=2,const int allowX=1)
 {
     ModelUnit pep;
-
-    string line="";
-    string record_name="ATOM  ";
-    char altLoc=' ';
-
+    ChainUnit chain;
+    ResidueUnit residue;
     AtomUnit atom;
     atom.xyz.assign(3,0);
-
-    ResidueUnit residue;
-
-    ChainUnit chain;
+    atom.bfactor=0;
 
     string filename_str=(string) filename;
-    
-    int use_stdin=(filename_str=="-");
-    int use_pstream=0; // input is compressed
-
-    ifstream fp;
-    redi::ipstream fp_gz; // if file is compressed
-    if (filename_str.length()>=3 && 
-        filename_str.substr(filename_str.length()-3,3)==".gz")
+    stringstream strStream;
+    if (filename_str=="-") strStream<<cin.rdbuf();
+#if defined(REDI_PSTREAM_H_SEEN)
+    else if (EndsWith(filename_str,".gz"))
     {
-        // gzip pdb
+        redi::ipstream fp_gz; // if file is compressed
         fp_gz.open("gunzip -c "+filename_str);
-        use_pstream=1;
+        strStream<<fp_gz.rdbuf();
+        fp_gz.close();
     }
+#endif
     else
     {
+        ifstream fp;
         fp.open(filename,ios::in); //ifstream fp(filename,ios::in);
+        strStream<<fp.rdbuf();
+        fp.close();
     }
-
-    while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
+    vector<string> lines;
+    Split(strStream.str(),lines,'\n'); 
+    strStream.str(string());
+    
+    size_t l;
+    string line="";
+    for (l=0;l<lines.size();l++)
     {
-        if (use_stdin)
-            getline(cin,line);
-        else if (use_pstream)
-            getline(fp_gz,line);
-        else
-            getline(fp,line);
-
+        line=lines[l];
         if (line.substr(0,3)=="END") break;
-        if (line.length()<53) continue;
-        
-        if (parse_pdb_line(line,pep,chain,residue,atom,atomic_detail,allowX)==2)
+        else if (line.length()<6) continue;
+        else if (parse_pdb_line(line,pep,chain,residue,atom,atomic_detail,allowX)==2)
             header+=rstrip(line)+'\n';
     }
-    if (!use_stdin)
-    {
-        if (use_pstream==0)
-            fp.close();
-        else
-            fp_gz.close();
-    }
     
+    atom.xyz.clear();
     chain.residues.clear();
     residue.atoms.clear();
+    vector<string>().swap(lines);
     return pep;
 }
 
@@ -231,24 +219,28 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     int _atom_site_count=0;
     stringstream buf;
 
-    string line="";
     string filename_str=(string) filename;
-    
-    int use_stdin=(filename_str=="-");
-    int use_pstream=0; // input is compressed
-    ifstream fp;
-    redi::ipstream fp_gz; // if file is compressed
-    if (filename_str.length()>=3 && 
-        filename_str.substr(filename_str.length()-3,3)==".gz")
+    stringstream strStream;
+    if (filename_str=="-") strStream<<cin.rdbuf();
+#if defined(REDI_PSTREAM_H_SEEN)
+    else if (EndsWith(filename_str,".gz"))
     {
-        // gzip pdb
+        redi::ipstream fp_gz; // if file is compressed
         fp_gz.open("gunzip -c "+filename_str);
-        use_pstream=1;
+        strStream<<fp_gz.rdbuf();
+        fp_gz.close();
     }
+#endif
     else
     {
+        ifstream fp;
         fp.open(filename,ios::in); //ifstream fp(filename,ios::in);
+        strStream<<fp.rdbuf();
+        fp.close();
     }
+    vector<string> lines;
+    Split(strStream.str(),lines,'\n'); 
+    strStream.str(string());
 
     string model_group_name="ALPHAFOLD MONOMER V2.0 PREDICTION";
     string db_accession="";
@@ -271,11 +263,12 @@ ModelUnit read_cif_structure(const char *filename,string &header,
     string atom_id="";
     vector<string> pdb_line_vec;
     
-    while(use_stdin?cin.good():(use_pstream?fp_gz.good():fp.good()))
+    size_t l;
+    string line="";
+    for (l=0;l<lines.size();l++)
     {
-        if (use_stdin)        getline(cin,line);
-        else if (use_pstream) getline(fp_gz,line);
-        else                  getline(fp,line);
+        line=lines[l];
+        if (line.size()==0) continue;
 
         if (StartsWith(line,"_ma_model_list.model_group_name"))
             model_group_name=Trim(line.substr(32)," \"");
@@ -312,7 +305,7 @@ ModelUnit read_cif_structure(const char *filename,string &header,
             _atom_site["Cartn_y"]=-1;   // *
             _atom_site["Cartn_z"]=-1;   // *
             _atom_site["bfactor"]=-1;
-            model_num=-1;
+            model_num="";
         }
         else if (StartsWith(line,"_atom_site."))
         {
@@ -358,19 +351,25 @@ ModelUnit read_cif_structure(const char *filename,string &header,
                 _atom_site["seq_id"]<0    || _atom_site["Cartn_x"]<0 ||
                 _atom_site["Cartn_y"]<0   || _atom_site["Cartn_z"]<0)
                 continue;
+            pdb_line_vec.clear();
             Split(line,pdb_line_vec);
             group_PDB=pdb_line_vec[_atom_site["group_PDB"]];
             resn=pdb_line_vec[_atom_site["comp_id"]];
-            if ((allowX==0 && group_PDB!="ATOM")||
-                (allowX==1 && group_PDB!="ATOM" &&  
-               !(group_PDB=="HETATM" && resn=="MSE"))||
-                (group_PDB!="ATOM" && group_PDB!="HETATM"))
+            if ((allowX==0 && group_PDB!="ATOM")
+              ||(allowX==1 && group_PDB!="ATOM" && !(group_PDB=="HETATM" && resn=="MSE"))
+              ||(group_PDB!="ATOM" && group_PDB!="HETATM")
+              ||(_atom_site["alt_id"]>=0 && pdb_line_vec[_atom_site["alt_id"]]!="."
+                    && pdb_line_vec[_atom_site["alt_id"]]!="A")
+              ||(_atom_site["model_num"]>=0 && model_num.size() &&
+                 model_num!=pdb_line_vec[_atom_site["model_num"]])
+              )
+            {
+                for (s=0;s<pdb_line_vec.size();s++) pdb_line_vec[s].clear();
+                pdb_line_vec.clear();
                 continue;
+            }
             if (_atom_site["model_num"]>=0)
-                if (model_num.size()>=0) model_num=pdb_line_vec[_atom_site["model_num"]];
-                else if (model_num!=pdb_line_vec[_atom_site["model_num"]]) continue;
-            if (_atom_site["alt_id"]>=0 && pdb_line_vec[_atom_site["alt_id"]]!="."
-                && pdb_line_vec[_atom_site["alt_id"]]!="A") continue;
+                model_num=pdb_line_vec[_atom_site["model_num"]];
             atom.name=pdb_line_vec[_atom_site["atom_id"]];
             if (resn=="MSE" && atom.name=="SE") atom.name=" SD ";
             if      (resn.size()==1) resn="  "+resn;
@@ -389,30 +388,38 @@ ModelUnit read_cif_structure(const char *filename,string &header,
                 atom.bfactor=Btoint16(pdb_line_vec[_atom_site["bfactor"]]);
             if (chainID!=pdb_line_vec[_atom_site["asym_id"]])
             {
-                chain.residues.clear();
+                if (residue.atoms.size())
+                {
+                    chain.residues.push_back(residue);
+                    residue.atoms.clear();
+                }
+                residue.resn=resn;
+                resi=pdb_line_vec[_atom_site["seq_id"]];
+                residue.resi=atoi(resi.c_str());
+                residue.icode=' ';
+                if (_atom_site["icode"]>=0)
+                {
+                    icode=pdb_line_vec[_atom_site["icode"]];
+                    if (icode=="." || icode=="?") residue.icode=' ';
+                    else residue.icode=icode[0];
+                }
+                if (chain.residues.size())
+                {
+                    pep.chains.push_back(chain);
+                    chain.residues.clear();
+                }
                 chainID=pdb_line_vec[_atom_site["asym_id"]];
                 if (chainID==".") chainID="_";
                 chain.chainID=chainID[0];
-                pep.chains.push_back(chain);
-                residue.atoms.clear();
-                residue.resn=resn;
-                resi=pdb_line_vec[_atom_site["seq_id"]];
-                residue.resi=atoi(resi.c_str());
-                residue.icode=' ';
-                if (_atom_site["icode"]>=0)
-                {
-                    icode=pdb_line_vec[_atom_site["icode"]];
-                    residue.icode=icode[0];
-                    if (icode=="." || icode=="?") residue.icode=' ';
-                }
-                pep.chains[c].residues.push_back(residue);
             }
-            c=pep.chains.size()-1;
-            r=pep.chains[c].residues.size()-1;
             if (resi!=pdb_line_vec[_atom_site["seq_id"]] || (
                 _atom_site["icode"]>=0 && icode!=pdb_line_vec[_atom_site["icode"]]))
             {
-                residue.atoms.clear();
+                if (residue.atoms.size())
+                {
+                    chain.residues.push_back(residue);
+                    residue.atoms.clear();
+                }
                 residue.resn=resn;
                 resi=pdb_line_vec[_atom_site["seq_id"]];
                 residue.resi=atoi(resi.c_str());
@@ -420,18 +427,25 @@ ModelUnit read_cif_structure(const char *filename,string &header,
                 if (_atom_site["icode"]>=0)
                 {
                     icode=pdb_line_vec[_atom_site["icode"]];
-                    residue.icode=icode[0];
                     if (icode=="." || icode=="?") residue.icode=' ';
+                    else residue.icode=icode[0];
                 }
-                pep.chains[c].residues.push_back(residue);
-                r=pep.chains[c].residues.size()-1;
             }
-            pep.chains[c].residues[r].atoms.push_back(atom);
+            residue.atoms.push_back(atom);
             for (s=0;s<pdb_line_vec.size();s++) pdb_line_vec[s].clear();
             pdb_line_vec.clear();
         }
     }
-    vector<string> ().swap(pdb_line_vec);
+    if (residue.atoms.size())
+    {
+        chain.residues.push_back(residue);
+        residue.atoms.clear();
+    }
+    if (chain.residues.size())
+    {
+        pep.chains.push_back(chain);
+        chain.residues.clear();
+    }
     if (model_group_name.size())
         header+="TITLE     "+model_group_name+" FOR "+pdbx_description+
             " ("+db_accession+")\n";
@@ -459,17 +473,31 @@ ModelUnit read_cif_structure(const char *filename,string &header,
         buf.str(string());
     }
 
-    if (!use_stdin)
-    {
-        if (use_pstream==0) fp.close();
-        else fp_gz.close();
-    }
-    
     /* clean up */
+    model_group_name.clear();
+    db_accession.clear();
+    db_code.clear();
+    db_name.clear();
+    ncbi_taxonomy_id.clear();
+    organism_scientific.clear();
+    seq_db_align_begin.clear();
+    seq_db_align_end.clear();
+    pdbx_description.clear();
+    asym_id.clear();
+    model_num.clear();
+    resi.clear();
+    icode.clear();
+    chainID.clear();
+    seq_id.clear();
+    resn.clear();
+    group_PDB.clear();
+    atom_id.clear();
+
+    vector<string> ().swap(lines);
+    vector<string> ().swap(pdb_line_vec);
     map<string,int> ().swap(_atom_site);
     atom.xyz.clear();
-    residue.atoms.clear();
-    chain.residues.clear();
+    residue.resn.clear();
     return pep;
 }
 
@@ -893,7 +921,7 @@ void standardize_pdb_order(ChainUnit &chain, map<string, map<string,int> >&ordMa
         resn=chain.residues[r].resn;
         if (ordMap.count(resn)==0)
         {
-            cerr<<"ERROR! unknown residue "<<resn<<endl;
+            cerr<<"ERROR! unknown residue "<<r<<" "<<resn<<endl;
             exit(1);
         }
         if (chain.residues[r].atoms.size()!=ordMap[resn].size() &&

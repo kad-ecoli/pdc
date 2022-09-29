@@ -3566,6 +3566,82 @@ string write_cif_structure(ModelUnit &pep,string &header)
     int pdbx_sifts_xref_db_num=atoi(seq_db_align_begin.c_str());
     size_t i=0;
     char icode='?';
+
+    size_t atomNum=0;
+    int32_t xmax,xmin;
+    int32_t ymax,ymin;
+    int32_t zmax,zmin;
+    int16_t bmax,bmin;
+    int     rmax,rmin;
+    for (c=0;c<pep.chains.size();c++)
+    {
+        for (r=0;r<pep.chains[c].residues.size();r++)
+        {
+            if (atomNum==0) rmax=rmin=pep.chains[c].residues[r].resi;
+            else
+            {
+                if (pep.chains[c].residues[r].resi>rmax)
+                    rmax=pep.chains[c].residues[r].resi;
+                else if (pep.chains[c].residues[r].resi<rmax)
+                    rmin=pep.chains[c].residues[r].resi;
+            }
+            for (a=0;a<pep.chains[c].residues[r].atoms.size();a++)
+            {
+                if (atomNum==0)
+                {
+                    xmax=xmin=pep.chains[c].residues[r].atoms[a].xyz[0];
+                    ymax=ymin=pep.chains[c].residues[r].atoms[a].xyz[1];
+                    zmax=zmin=pep.chains[c].residues[r].atoms[a].xyz[2];
+                    bmax=bmin=pep.chains[c].residues[r].atoms[a].bfactor;
+                }
+                else
+                {
+                    if (pep.chains[c].residues[r].atoms[a].xyz[0]>xmax)
+                        xmax=pep.chains[c].residues[r].atoms[a].xyz[0];
+                    else if (pep.chains[c].residues[r].atoms[a].xyz[0]<xmin)
+                        xmin=pep.chains[c].residues[r].atoms[a].xyz[0];
+                    if (pep.chains[c].residues[r].atoms[a].xyz[1]>ymax)
+                        ymax=pep.chains[c].residues[r].atoms[a].xyz[1];
+                    else if (pep.chains[c].residues[r].atoms[a].xyz[1]<ymin)
+                        ymin=pep.chains[c].residues[r].atoms[a].xyz[1];
+                    if (pep.chains[c].residues[r].atoms[a].xyz[2]>zmax)
+                        zmax=pep.chains[c].residues[r].atoms[a].xyz[2];
+                    else if (pep.chains[c].residues[r].atoms[a].xyz[2]<zmin)
+                        zmin=pep.chains[c].residues[r].atoms[a].xyz[2];
+                    if (pep.chains[c].residues[r].atoms[a].bfactor>bmax)
+                        bmax=pep.chains[c].residues[r].atoms[a].bfactor;
+                    else if (pep.chains[c].residues[r].atoms[a].bfactor<bmin)
+                        bmin=pep.chains[c].residues[r].atoms[a].bfactor;
+                }
+                atomNum++;
+            }
+        }
+    }
+    int atomWidth=1;
+    if (atomNum>=10000)     atomWidth=5;
+    else if (atomNum>=1000) atomWidth=4;
+    else if (atomNum>=100)  atomWidth=3;
+    else if (atomNum>=10)   atomWidth=2;
+    int rWidth=1;
+    if (rmax>=1000 || rmin<=-100)    rWidth=4;
+    else if (rmax>=100 || rmin<=-10) rWidth=3;
+    else if (rmax>=10  || rmin<=-1)  rWidth=2;
+    int xWidth=5;
+    if (xmax>=1000000 || xmin<=-100000)     xWidth=8;
+    else if (xmax>=100000  || xmin<=-10000) xWidth=7;
+    else if (xmax>=10000   || xmin<=-1000)  xWidth=6;
+    int yWidth=5;
+    if (ymax>=1000000 || ymin<=-100000)     yWidth=8;
+    else if (ymax>=100000  || ymin<=-10000) yWidth=7;
+    else if (ymax>=10000   || ymin<=-1000)  yWidth=6;
+    int zWidth=5;
+    if (zmax>=1000000 || zmin<=-100000)     zWidth=8;
+    else if (zmax>=100000  || zmin<=-10000) zWidth=7;
+    else if (zmax>=10000   || zmin<=-1000)  zWidth=6;
+    int bWidth=4;
+    if (bmax>=10000 || bmax<=-1000)    bWidth=6;
+    else if (bmax>=1000 || bmax<=-100) bWidth=5;
+
     for (c=0;c<pep.chains.size();c++)
     {
         for (r=0;r<pep.chains[c].residues.size();r++)
@@ -3576,30 +3652,30 @@ string write_cif_structure(ModelUnit &pep,string &header)
             {
                 i++;
                 buf<<"ATOM "
-                    <<left<<setw(5)<<i<<" "
+                    <<left<<setw(atomWidth)<<i<<" "
                     <<Trim(pep.chains[c].residues[r].atoms[a].name)[0]
                     <<' '<<left<<setw(3)
                     <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" . "
                     <<pep.chains[c].residues[r].resn
                     <<' '<<pep.chains[c].chainID<<" 1 "
-                    <<left<<setw(4)<<pep.chains[c].residues[r].resi
+                    <<left<<setw(rWidth)<<pep.chains[c].residues[r].resi
                     <<' '<<icode<<' '
-                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<left<<setw(xWidth)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[0]<<' '
-                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<left<<setw(yWidth)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[1]<<' '
-                    <<left<<setw(8)<<setiosflags(ios::fixed)<<setprecision(3)
+                    <<left<<setw(zWidth)<<setiosflags(ios::fixed)<<setprecision(3)
                     <<0.001*pep.chains[c].residues[r].atoms[a].xyz[2]<<" 1.0 "
-                    <<left<<setw(5)<<setiosflags(ios::fixed)<<setprecision(2)
+                    <<left<<setw(bWidth)<<setiosflags(ios::fixed)<<setprecision(2)
                     <<0.01*pep.chains[c].residues[r].atoms[a].bfactor
                     <<' '<<icode<<' '
-                    <<left<<setw(4)<<pep.chains[c].residues[r].resi
+                    <<left<<setw(rWidth)<<pep.chains[c].residues[r].resi
                     <<' '<<pep.chains[c].residues[r].resn
                     <<' '<<pep.chains[c].chainID
                     <<' '<<left<<setw(3)
                     <<Trim(pep.chains[c].residues[r].atoms[a].name)<<" 1 ";
                 if (pdbx_sifts) buf<<db_accession<<' '<<db_name<<' '
-                    <<setw(4)<<pdbx_sifts_xref_db_num<<' '
+                    <<setw(rWidth)<<pdbx_sifts_xref_db_num<<' '
                     <<aa3to1(pep.chains[c].residues[r].resn)<<' ';
                 buf<<endl;
                 txt+=buf.str();

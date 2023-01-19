@@ -142,6 +142,8 @@ int parse_pdb_line(const string line,ModelUnit &pep, ChainUnit &chain,
     if      (atom.name=="SE  ") atom.name=" SD ";
     else if (atom.name==" O1P") atom.name=" OP1";
     else if (atom.name==" O2P") atom.name=" OP2";
+    else if (atom.name[1]=='H' && (atom.name[0]==' ' || 
+            ('0'<=atom.name[0] && atom.name[0]<='9'))) return 0; // hydrogen
     else if (atom.name[3]=='*') atom.name=atom.name.substr(0,3)+"'";
     chain.chainID=line[21];
     if (chain.chainID==' ') chain.chainID='_';
@@ -548,7 +550,7 @@ string write_pdb_structure(ChainUnit &chain,int &i)
             buf<<"ATOM  "
                <<resetiosflags(ios::left)<<setw(5)<<i++<<' '
                <<chain.residues[r].atoms[a].name<<' '
-               <<chain.residues[r].resn<<' '<<chain.chainID<<setw(4)
+               <<chain.residues[r].resn<<' '<<chainID<<setw(4)
                <<chain.residues[r].resi<<chain.residues[r].icode<<"   "
                <<setiosflags(ios::fixed)<<setprecision(3)
                <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z

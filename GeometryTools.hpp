@@ -326,8 +326,8 @@ int calculateCoordinates(double *D,
     if (innerproduct(CA,CA)<Extra || innerproduct(CB,CB)<Extra || innerproduct(CC,CC)<Extra)
     {
         D[0]=refC[0];
-        D[1]=refC[0];
-        D[2]=refC[0];
+        D[1]=refC[1];
+        D[2]=refC[2];
         return 1;
     }
 
@@ -352,7 +352,33 @@ int calculateCoordinates(double *D,
         )/denom;
 
     double Y,Z;
-    if ((B==0 or CB[2]==0) && (CB[1]==0 or G==0))
+    if (B==0 && G==0)
+    {
+        D[0]=refC[0];
+        D[1]=refC[1];
+        D[2]=refC[2];
+        double len=CA[0]*CA[0]+CA[1]*CA[1]+CA[2]*CA[2];
+        if (len>0)
+        {
+            len=l/sqrt(len);
+            D[0]-=CA[0]*len;
+            D[1]-=CA[1]*len;
+            D[2]-=CA[2]*len;
+        }
+        else
+        {
+            len=CB[0]*CB[0]+CB[1]*CB[1]+CB[2]*CB[2];
+            if (len>0)
+            {
+                len=l/sqrt(len);
+                D[0]-=CA[0]*len;
+                D[1]-=CA[1]*len;
+                D[2]-=CA[2]*len;
+            }
+        }
+        return 1;
+    }
+    else if ((B==0 or CB[2]==0) && (CB[1]==0 or G==0))
     {
         double const1=sqrt( G*G*(-A*A*X*X+(B*B+G*G)*(l-X)*(l+X)));
         Y= ((-A*B*X)+const1)/(B*B+G*G);

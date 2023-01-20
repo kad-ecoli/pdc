@@ -76,6 +76,7 @@ int main(int argc,char **argv)
     {
         map<string, map<string,int> >ordMap;
         initialize_atom_order_map(ordMap);
+        remove_nonter_OXT(pdb_entry);
         standardize_pdb_order(pdb_entry, ordMap);
         map<string, map<string,int> >().swap(ordMap);
     }

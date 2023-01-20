@@ -531,6 +531,34 @@ ModelUnit read_cif_structure(const char *filename,string &header,
 }
 
 /* i - first atom index */
+string write_pdb_structure(ResidueUnit &residue)
+{
+    stringstream buf;
+    char chainID=' ';
+    int32_t x,y,z;
+    size_t a;
+
+    for (a=0;a<residue.atoms.size();a++)
+    {
+        x=residue.atoms[a].xyz[0];
+        y=residue.atoms[a].xyz[1];
+        z=residue.atoms[a].xyz[2];
+        buf<<"ATOM  "
+           <<resetiosflags(ios::left)<<setw(5)<<0<<' '
+           <<residue.atoms[a].name<<' '
+           <<residue.resn<<' '<<chainID<<setw(4)
+           <<residue.resi<<residue.icode<<"   "
+           <<setiosflags(ios::fixed)<<setprecision(3)
+           <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z
+           <<"  1.00"<<setw(6)<<setiosflags(ios::fixed)<<setprecision(2)
+           <<0.01*residue.atoms[a].bfactor
+           <<"     "
+           <<Trim(residue.atoms[a].name)[0]<<"  \n";
+    }
+    return buf.str();
+}
+
+
 string write_pdb_structure(ChainUnit &chain,int &i)
 {
     stringstream buf;
@@ -935,6 +963,71 @@ void initialize_atom_order_map(map<string, map<string,int> > & ordMap)
                        ordMap["TYR"][" CD2"]=7; ordMap["TYR"][" CE1"]=8;
                        ordMap["TYR"][" CE2"]=9; ordMap["TYR"][" OH "]=10;
                        ordMap["TYR"][" CZ "]=11;
+}
+
+int hasOXT(ResidueUnit &residue)
+{
+    int a;
+    int oxtCount=0;
+    for (a=0;a<residue.atoms.size();a++)
+        oxtCount+=residue.atoms[a].name==" OXT";
+    return oxtCount;
+}
+
+void remove_nonter_OXT(ChainUnit &chain)
+{
+    int a,r;
+    int oxtCount=0;
+    size_t L=chain.residues.size();
+    vector<int> oxtCount_vec(L,0);
+    for (r=0;r<L;r++)
+    {
+        oxtCount_vec[r]=hasOXT(chain.residues[r]);
+        if (r+1<L) oxtCount+=oxtCount_vec[r];
+    }
+    if (oxtCount==0)
+    {
+        oxtCount_vec.clear();
+        return;
+    }
+
+    ResidueUnit temp_residue;
+    AtomUnit temp_atom;
+    temp_atom.xyz.assign(3,0);
+    for (r=0;r<L;r++)
+    {
+        if (oxtCount_vec[r]==0 || r+1==L)
+        {
+            continue;
+        }
+        vector<AtomUnit> atoms;
+        for (a=0;a<chain.residues[r].atoms.size();a++)
+        {
+            if (chain.residues[r].atoms[a].name!=" OXT")
+            {
+                temp_atom.name   =chain.residues[r].atoms[a].name;
+                temp_atom.xyz[0] =chain.residues[r].atoms[a].xyz[0];
+                temp_atom.xyz[1] =chain.residues[r].atoms[a].xyz[1];
+                temp_atom.xyz[2] =chain.residues[r].atoms[a].xyz[2];
+                temp_atom.bfactor=chain.residues[r].atoms[a].bfactor;
+                atoms.push_back(temp_atom);
+            }
+            deepClean(chain.residues[r].atoms[a]);
+        }
+        vector<AtomUnit>().swap(chain.residues[r].atoms);
+        //chain.residues[r].atoms.clear();
+        for (a=0;a<atoms.size();a++) chain.residues[r].atoms.push_back(atoms[a]);
+        vector<AtomUnit>().swap(atoms);
+    }
+    deepClean(temp_residue);
+    deepClean(temp_atom);
+    int i=1;
+}
+
+void remove_nonter_OXT(ModelUnit &pep)
+{
+    int c;
+    for (c=0;c<pep.chains.size();c++) remove_nonter_OXT(pep.chains[c]);
 }
 
 void standardize_pdb_order(ChainUnit &chain, map<string, map<string,int> >&ordMap)

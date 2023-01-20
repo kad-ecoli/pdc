@@ -536,6 +536,7 @@ string write_pdb_structure(ResidueUnit &residue)
     stringstream buf;
     char chainID=' ';
     int32_t x,y,z;
+    int16_t bfactor;     // temperature factor
     size_t a;
 
     for (a=0;a<residue.atoms.size();a++)
@@ -543,6 +544,8 @@ string write_pdb_structure(ResidueUnit &residue)
         x=residue.atoms[a].xyz[0];
         y=residue.atoms[a].xyz[1];
         z=residue.atoms[a].xyz[2];
+        bfactor=residue.atoms[a].bfactor;
+        while (bfactor<-9999) bfactor+=32767;
         buf<<"ATOM  "
            <<resetiosflags(ios::left)<<setw(5)<<0<<' '
            <<residue.atoms[a].name<<' '
@@ -551,8 +554,7 @@ string write_pdb_structure(ResidueUnit &residue)
            <<setiosflags(ios::fixed)<<setprecision(3)
            <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z
            <<"  1.00"<<setw(6)<<setiosflags(ios::fixed)<<setprecision(2)
-           <<0.01*residue.atoms[a].bfactor
-           <<"     "
+           <<0.01*bfactor<<"     "
            <<Trim(residue.atoms[a].name)[0]<<"  \n";
     }
     return buf.str();
@@ -565,6 +567,7 @@ string write_pdb_structure(ChainUnit &chain,int &i)
     int r,a;
     char chainID=' ';
     int32_t x,y,z;
+    int16_t bfactor;     // temperature factor
 
     for (r=0;r<chain.residues.size();r++)
     {
@@ -575,6 +578,8 @@ string write_pdb_structure(ChainUnit &chain,int &i)
             x=chain.residues[r].atoms[a].xyz[0];
             y=chain.residues[r].atoms[a].xyz[1];
             z=chain.residues[r].atoms[a].xyz[2];
+            bfactor=chain.residues[r].atoms[a].bfactor;
+            while (bfactor<-9999) bfactor=32767;
             buf<<"ATOM  "
                <<resetiosflags(ios::left)<<setw(5)<<i++<<' '
                <<chain.residues[r].atoms[a].name<<' '
@@ -583,8 +588,7 @@ string write_pdb_structure(ChainUnit &chain,int &i)
                <<setiosflags(ios::fixed)<<setprecision(3)
                <<setw(8)<<0.001*x<<setw(8)<<0.001*y<<setw(8)<<0.001*z
                <<"  1.00"<<setw(6)<<setiosflags(ios::fixed)<<setprecision(2)
-               <<0.01*chain.residues[r].atoms[a].bfactor
-               <<"           "
+               <<0.01*bfactor<<"           "
                <<Trim(chain.residues[r].atoms[a].name)[0]<<"  \n";
         }
     }

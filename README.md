@@ -48,7 +48,7 @@ PDC is specifically designed for protein models in the AlphaFold database. It is
 5. Hydrogens are ignored.
 
 ## Benchmark ##
-PDC, MMTF, PIC and BinaryCIF are applied to the [E coli](https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/UP000000625_83333_ECOLI_v3.tar) proteome of AlphaFold DB. The file sizes after gzip compression are shown below.
+PDC, MMTF, PIC and BinaryCIF are applied to the [E coli](https://ftp.ebi.ac.uk/pub/databases/alphafold/v3/UP000000625_83333_ECOLI_v3.tar) proteome of AlphaFold DB. The file sizes after gzip compression are shown below.
 | File format | File size (MB) | Lossless/Lossy |
 | :--:        | :--:           | :--:           |
 | CIF         | 273            | Lossless       |

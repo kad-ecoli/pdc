@@ -58,3 +58,35 @@ PDC, [MMTF](https://mmtf.rcsb.org/), [PIC](https://github.com/lukestaniscia/PIC)
 | MMTF        | 76             | Lossless       |
 | PDC         | 67             | Lossless       |
 | PDC         | 26             | Lossy          |
+
+Conversion to/from MMTF was performed by [Atomium](https://github.com/samirelanduk/atomium)
+```python
+import atomium
+pdb = atomium.open("input.pdb")
+pdb.model.save("compressed.mmtf")
+```
+```python
+import atomium
+pdb = atomium.open("compressed.mmtf")
+pdb.model.save("decompressed.pdb")
+```
+
+Conversion to/from PIC was performed by [PIC](https://github.com/lukestaniscia/PIC)
+```bash
+PIC.py -k input.pdb # compression
+PIC.py -dk input # decompression
+```
+
+Conversion to/from BinaryCIF was performed by [modelcif](https://github.com/ihmwg/python-modelcif)
+```python
+import modelcif.reader
+import modelcif.dumper
+s=modelcif.reader.read(open("input.cif"),format="mmCIF")
+modelcif.dumper.write(open("compressed.bcif",'wb'),s,format="BCIF")
+```
+```python
+import modelcif.reader
+import modelcif.dumper
+s=modelcif.reader.read(open("compressed.bcif",'rb'),format="BCIF")
+modelcif.dumper.write(open("decompressed.cif",'w'),s,format="mmCIF")
+```

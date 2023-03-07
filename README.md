@@ -90,3 +90,8 @@ import modelcif.dumper
 s=modelcif.reader.read(open("compressed.bcif",'rb'),format="BCIF")
 modelcif.dumper.write(open("decompressed.cif",'w'),s,format="mmCIF")
 ```
+
+## Reference ##
+Chengxin Zhang, Anna Marie Pyle (2023)
+"PDC: a highly compact file format to store protein 3D coordinates."
+Database: The Journal of Biological Databases and Curation. baad018.
